@@ -1,0 +1,7 @@
+#!/bin/sh
+
+# script abstraction to make this container more flexible and
+#  minimize the need to rebuild.
+/config/scripts/cpFromTablo
+
+exit 0
