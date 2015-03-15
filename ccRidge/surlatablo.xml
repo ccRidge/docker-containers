@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Container>
+  <Name>surlatablo</Name>
+  <Description>This docker sets up a daily cron job utilizing SurLaTablo to automate pulling media from a Tablo device based on query criteria configurable by the user.[br]&#13;
+               http://community.tablotv.com/discussion/1411/surlatablo-py-python-program-to-query-and-convert-tablo-recordings[br]&#13;
+               http://endlessnow.com/ten/SurLaTablo/[br]&#13;
+               [b]/config[/b]      : This is where surlatablo will store it\'s configuration.[br][br]&#13;
+               [b]/data[/b]        : This is where surlatablo will store converted tablo streams for plex to access.[br][br]&#13;
+               [b]/transcode[/b]   : This is where surlatablo will temporarily store transcode session files.[br][br]&#13;
+</Description>
+  <Registry>https://registry.hub.docker.com/u/ccridge/surlatablo/</Registry>
+  <Repository>ccridge/surlatablo</Repository>
+  <BindTime>true</BindTime>
+  <Privileged>false</Privileged>
+  <Environment/>
+  <Networking>
+    <Mode>host</Mode>
+    <Publish/>
+  </Networking>
+  <Data>
+    <Volume>
+      <HostDir>/mnt/appdisk/docker/surlatablo/transcode/</HostDir>
+      <ContainerDir>/transcode</ContainerDir>
+      <Mode>rw</Mode>
+    </Volume>
+    <Volume>
+      <HostDir>/mnt/appdisk/docker/surlatablo/config/</HostDir>
+      <ContainerDir>/config</ContainerDir>
+      <Mode>rw</Mode>
+    </Volume>
+    <Volume>
+      <HostDir>/mnt/user/</HostDir>
+      <ContainerDir>/data</ContainerDir>
+      <Mode>rw</Mode>
+    </Volume>
+  </Data>
+  <Version>d2fd3a10</Version>
+  <WebUI></WebUI>
+  <Banner>http://i.imgur.com/SRkmfTs.png</Banner>
+  <Icon>http://i.imgur.com/GUlZv4w.png</Icon>
+  <ExtraParams></ExtraParams>
+</Container>
