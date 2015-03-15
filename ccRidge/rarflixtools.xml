@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Container>
+  <Name>rarflixtools</Name>
+  <Description>RARflixTools is intended to work alongside a plex media server install to supplement the client experience of plex running on the private roku channel RARflix.[br]&#13;
+               https://forums.plex.tv/index.php/topic/91896-rarflixtools-supplemental-tools-for-rarflix/[br]&#13;
+               https://github.com/ljunkie/RARflixTools[br]&#13;
+               [b]/config[/b] : This is where rarflixtools will store it\'s configuration.[br][br]&#13;
+</Description>
+  <Registry>https://registry.hub.docker.com/u/ccridge/rarflixtools/</Registry>
+  <Repository>ccridge/rarflixtools</Repository>
+  <BindTime>true</BindTime>
+  <Privileged>false</Privileged>
+  <Environment/>
+  <Networking>
+    <Mode>host</Mode>
+    <Publish>
+      <Port>
+        <HostPort>32499</HostPort>
+        <ContainerPort>32499</ContainerPort>
+        <Protocol>tcp</Protocol>
+      </Port>
+    </Publish>
+  </Networking>
+  <Data>
+    <Volume>
+      <HostDir>/mnt/appdisk/docker/rarflixtools/config</HostDir>
+      <ContainerDir>/config</ContainerDir>
+      <Mode>rw</Mode>
+    </Volume>
+  </Data>
+  <Version>bea31282</Version>
+  <WebUI></WebUI>
+  <Banner></Banner>
+  <Icon></Icon>
+  <ExtraParams></ExtraParams>
+</Container>
