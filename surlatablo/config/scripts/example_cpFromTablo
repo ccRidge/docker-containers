@@ -1,0 +1,12 @@
+#!/bin/sh
+
+TODAY=`date +"%Y-%m-%d"`
+YESTERDAY=`date --date='yesterday' +"%Y-%m-%d"`
+
+# copy surlatablo configuration to the location the python script expects
+cp -u /config/conf/surlatablo.conf /root/surlatablo.conf
+
+# convert all shows that match last air date of today, or yesterday.
+/config/scripts/surlatablo.py --convert --query lair_date~="$TODAY|$YESTERDAY"
+
+exit 0
