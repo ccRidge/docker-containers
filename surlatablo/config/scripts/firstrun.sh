@@ -5,11 +5,14 @@
 #
 # SurLaTablo
 #
-# Try our best to grab the latest surlatablo python script from http://endlessnow.com/ten/SurLaTablo/
-#  The maintainer of this keeps version numbers in the file names,
+# Use $VERSION, if specified, or just try our best
+#  to grab the latest surlatablo python script from 
+#  http://endlessnow.com/ten/SurLaTablo/.
+# The maintainer of this keeps version numbers in the file names,
 #  so we'll never know the exact file to grab for sure.
-#  Try to determine the file to grab by matching on a pattern, then
-#  grabbing the newest dated file.
+# Best effort method of determining the file to grab is 
+#  based on pattern matching, then grabbing the newest
+# file by modification time.
 #
 #######################################
 
@@ -21,9 +24,16 @@ dCONF=/config/conf
 
 mkdir -p $SLT_TEMP $dSCRIPTS $dCONF
 
-wget -r -l1 -nd http://endlessnow.com/ten/SurLaTablo/ -P $SLT_TEMP -A "$SAR"
-fileToKeep=`ls $SLT_TEMP/$SAR -t | head -1`
-cp $fileToKeep /config/scripts/surlatablo.py
+if [ -n "$VERSION" ]; then
+    wget "http://endlessnow.com/ten/SurLaTablo/$VERSION" -P $SLT_TEMP
+fi
+# Wget non-zero exit status or null $VERSION will trigger best effort,
+# most recently modified surlatablo script.
+if [ $? -ne 0 ] || [ -z "$VERSION" ]; then
+    wget -r -l1 -nd "http://endlessnow.com/ten/SurLaTablo/" -P $SLT_TEMP -A "$SAR"
+fi
+    fileToKeep=`ls $SLT_TEMP/$SAR -t | head -1`
+    cp $fileToKeep /config/scripts/surlatablo.py
 rm -rf $SLT_TEMP
 chmod +x /config/scripts/surlatablo.py
 
