@@ -9,7 +9,7 @@ ENV DEBIAN_FRONTEND noninteractive
 CMD ["/sbin/my_init"]
 
 # Install python and encoder tools
-RUN add-apt-repository "deb http://ppa.launchpad.net/jon-severinsson/ffmpeg/ubuntu trusty main"
+RUN add-apt-repository "deb http://ppa.launchpad.net/mc3man/trusty-media/ubuntu trusty main"
 RUN apt-get update && apt-get install -y --force-yes ffmpeg python-pyudev wget
 RUN apt-get clean
 
