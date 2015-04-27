@@ -23,8 +23,11 @@ RUN mkdir -p /root/surlatablo/conf /root/surlatablo/scripts
 ADD /config/cron.daily/daily_cpFromTablo /etc/cron.daily/daily_cpFromTablo
 ADD /config/conf/example_surlatablo.conf /root/surlatablo/conf/example_surlatablo.conf
 ADD /config/scripts/example_cpFromTablo /root/surlatablo/scripts/example_cpFromTablo
+ADD /bin/ccextractor /usr/local/bin/ccextractor
 
-RUN chmod +x /etc/cron.daily/daily_cpFromTablo /root/surlatablo/scripts/example_cpFromTablo
+RUN chmod +x /etc/cron.daily/daily_cpFromTablo \
+             /root/surlatablo/scripts/example_cpFromTablo \
+             /usr/local/bin/ccextractor
 
 # Add firstrun.sh to execute during container startup
 RUN mkdir -p /etc/my_init.d
