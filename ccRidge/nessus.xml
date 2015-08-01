@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Container>
+  <Name>nessus</Name>
+  <Description>A dockerized nessus.[br]&#13;
+
+               [b]/data[/b]        : [br][br]&#13;
+</Description>
+  <Registry>https://registry.hub.docker.com/u/ccridge/nessus/</Registry>
+  <Repository>ccridge/nessus</Repository>
+  <BindTime>true</BindTime>
+  <Privileged>false</Privileged>
+  <Environment/>
+  <Networking>
+    <Mode>host</Mode>
+    <Publish/>
+  </Networking>
+  <Data>
+    <Volume>
+      <HostDir></HostDir>
+      <ContainerDir>/data</ContainerDir>
+      <Mode>rw</Mode>
+    </Volume>
+  </Data>
+  <Version>d2fd3a10</Version>
+  <WebUI></WebUI>
+  <Banner>http://i.imgur.com/oA4n1O4.png</Banner>
+  <Icon>http://i.imgur.com/dUxMepZ.png</Icon>
+  <ExtraParams></ExtraParams>
+</Container>
