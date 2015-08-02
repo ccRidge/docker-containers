@@ -29,7 +29,7 @@ RUN gdebi -n /tmp/Nessus.deb
 EXPOSE 8834
 
 # Add nessus to runit
-RUN mkdir /etc/service/nessus
-RUN echo '#!/bin/bash' > /etc/service/nessus/run
-RUN echo 'exec service nessusd start' >> /etc/service/nessus/run
-RUN chmod +x /etc/service/nessus/run
+RUN mkdir -p /etc/my_init.d
+RUN echo '#!/bin/bash' > /etc/my_init.d/firstrun.sh
+RUN echo 'exec service nessusd start' >> /etc/my_init.d/firstrun.sh
+RUN chmod +x /etc/my_init.d/firstrun.sh
