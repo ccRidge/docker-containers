@@ -1,8 +1,9 @@
 #!/bin/bash
 
-/openvas/setup.sh
+openvas-nvt-sync 
+openvas-scapdata-sync
+openvas-certdata-sync
 
-cd /usr/local/sbin
-./openvasmd
-./gsad
-./openvassd -f
+service openvas-scanner restart
+service openvas-manager restart
+openvasmd --rebuild --progress
