@@ -9,7 +9,10 @@ RUN add-apt-repository ppa:mrazavi/openvas -y && \
         openvas \
         sqlite3
 
-CMD /openvas/start.sh
-
 # Expose UI
 EXPOSE 443 9390 9391 9392
+
+# Add firstrun.sh to execute during container startup
+RUN mkdir -p /etc/my_init.d
+ADD /config/scripts/firstrun.sh /etc/my_init.d/firstrun.sh
+RUN chmod +x /etc/my_init.d/firstrun.sh
