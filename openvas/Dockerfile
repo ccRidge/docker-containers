@@ -13,6 +13,7 @@ RUN apt-get update -y && \
                     libglib2.0-dev \
                     libgnutls-dev \
                     libpcap0.8-dev \
+                    libhiredis0.10 \
                     libgpgme11 \
                     libgpgme11-dev \
                     doxygen \
