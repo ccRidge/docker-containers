@@ -7,7 +7,8 @@ RUN add-apt-repository ppa:mrazavi/openvas -y && \
     apt-get update -y && \
     apt-get install -y \
         openvas \
-        sqlite3
+        sqlite3 \
+        rsync
 
 # Expose UI
 EXPOSE 443 9390 9391 9392
