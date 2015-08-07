@@ -11,7 +11,7 @@
   <Privileged>false</Privileged>
   <Environment/>
   <Networking>
-    <Mode>host</Mode>
+    <Mode>bridge</Mode>
     <Publish>
       <Port>
         <HostPort>443</HostPort>
