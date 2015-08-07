@@ -12,12 +12,28 @@
   <Environment/>
   <Networking>
     <Mode>host</Mode>
-    <Publish/>
+    <Publish>
+      <Port>
+        <HostPort>443</HostPort>
+        <ContainerPort>443</ContainerPort>
+        <Protocol>tcp</Protocol>
+      </Port>
+      <Port>
+        <HostPort>9390</HostPort>
+        <ContainerPort>9390</ContainerPort>
+        <Protocol>tcp</Protocol>
+      </Port>
+      <Port>
+        <HostPort>9391</HostPort>
+        <ContainerPort>9391</ContainerPort>
+        <Protocol>tcp</Protocol>
+      </Port>
+    </Publish>
   </Networking>
   <Data>
     <Volume>
       <HostDir></HostDir>
-      <ContainerDir>/data</ContainerDir>
+      <ContainerDir>/var/lib/openvas/</ContainerDir>
       <Mode>rw</Mode>
     </Volume>
   </Data>
