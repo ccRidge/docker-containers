@@ -1,27 +1,32 @@
 #!/bin/bash
 
 mkdir -p /var/lib/openvas/private/CA /var/lib/openvas/CA /var/lib/openvas/scap-data/private
+killall openvassd openvasmd gsad
 
-test -e /var/lib/openvas/CA/cacert.pem  || openvas-mkcert -q
-openvas-nvt-sync
-openvas-scapdata-sync
-openvas-certdata-sync
+test -e /var/lib/openvas/CA/cacert.pem  || sudo openvas-mkcert -q
+sudo openvas-nvt-sync
+sudo openvas-scapdata-sync
+sudo openvas-certdata-sync
 
-test -e /var/lib/openvas/private/CA/cacert.pem || openvas-mkcert-client -n -i
-service openvas-scanner stop
-service openvas-manager stop
-service openvas-gsa stop
+test -e /var/lib/openvas/private/CA/cacert.pem || sudo openvas-mkcert-client -n -i
 
-openvassd
-openvasmd --update
-openvasmd --migrate
-openvasmd --rebuild --progress
-openvasmd --create-user=admin
-openvasmd --user=admin --new-password=admin
+sudo openvassd
+# wait for openvassd to be listening for connections
+for (( ; ; ))
+do
+     if ps -eaf | egrep -q "[o]penvassd: Waiting for incoming connections"
+     then
+         break
+     else
+         echo "[INFO] - `date` - Sleeping for 30 seconds.  Waiting for openvassd to be listening for incoming connections."
+         sleep 30
+     fi
+done
 
-killall openvassd
-sleep 15
-service openvas-scanner start
-service openvas-manager start
-service openvas-gsa start
+sudo openvasmd --update
+sudo openvasmd --migrate
+sudo openvasmd --rebuild --progress
+sudo openvasmd --create-user=admin
+sudo openvasmd --user=admin --new-password=admin
 
+sudo gsad
