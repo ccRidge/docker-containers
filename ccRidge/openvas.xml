@@ -28,6 +28,11 @@
         <ContainerPort>9391</ContainerPort>
         <Protocol>tcp</Protocol>
       </Port>
+      <Port>
+        <HostPort>9392</HostPort>
+        <ContainerPort>9392</ContainerPort>
+        <Protocol>tcp</Protocol>
+      </Port>
     </Publish>
   </Networking>
   <Data>
@@ -38,7 +43,7 @@
     </Volume>
   </Data>
   <Version>d2fd3a10</Version>
-  <WebUI></WebUI>
+  <WebUI>https://[IP]:[PORT:443]</WebUI>
   <Banner>http://i.imgur.com/wpeOxB1.png</Banner>
   <Icon>http://i.imgur.com/AxkKWji.png</Icon>
   <ExtraParams></ExtraParams>
