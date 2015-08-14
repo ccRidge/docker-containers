@@ -15,6 +15,9 @@ service openvas-gsa stop
 openvassd
 openvasmd --migrate
 openvasmd --rebuild --progress
+openvasmd --create-user=admin
+openvasmd --user=admin --new-password=admin
+
 killall openvassd
 sleep 15
 service openvas-scanner start
