@@ -13,6 +13,7 @@ service openvas-manager stop
 service openvas-gsa stop
 
 openvassd
+openvasmd --update
 openvasmd --migrate
 openvasmd --rebuild --progress
 openvasmd --create-user=admin
