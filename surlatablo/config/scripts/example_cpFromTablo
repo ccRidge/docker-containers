@@ -2,11 +2,27 @@
 
 TODAY=`date +"%Y-%m-%d"`
 YESTERDAY=`date --date='yesterday' +"%Y-%m-%d"`
+PARITYCHECKINPROGRESS=`cat /proc/mdcmd | grep "mdResync=1"`
+
+# reference surlatablo call that might come in handy commented out here.
+# /config/scripts/surlatablo.py --convert --ccaption --query lair_date~="$TODAY|$YESTERDAY" 
 
 # copy surlatablo configuration to the location the python script expects
 cp -u /config/conf/surlatablo.conf /root/surlatablo.conf
 
-# convert all shows that match last air date of today, or yesterday.
-/config/scripts/surlatablo.py --convert --ccaption --query lair_date~="$TODAY|$YESTERDAY"
+if [ ! $PARITYCHECKINPROGRESS ]; then
 
+    # always convert shows if they match last air date of "today", or "yesterday".
+
+    # first process tv series recordings.  This works because only tv series have "original_air_date" metadata.
+    # after some time trying multiple methods, I think I prefer just leaving in the commercials
+    # and creating the subtitles for tv series conversion.
+    /config/scripts/surlatablo.py --convert --ccaption --keepdir s --query original_air_date~="($TODAY|$YESTERDAY)" 
+
+    # next process again.  This
+    # should just end up being the rest, since no clobber is being used,
+    # so let's try and zap commercials here.
+    /config/scripts/surlatablo.py --convert -z --query lair_date~="($TODAY|$YESTERDAY)" Mp4z 
+
+fi
 exit 0
