@@ -33,3 +33,4 @@ RUN chmod +x /etc/cron.daily/daily_cpFromTablo \
 RUN mkdir -p /etc/my_init.d
 ADD /config/scripts/firstrun.sh /etc/my_init.d/firstrun.sh
 RUN chmod +x /etc/my_init.d/firstrun.sh
+CMD cron && tail -f /var/log/cron.log

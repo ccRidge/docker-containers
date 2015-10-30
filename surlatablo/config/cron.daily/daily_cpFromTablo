@@ -2,6 +2,6 @@
 
 # script abstraction to make this container more flexible and
 #  minimize the need to rebuild.
-/config/scripts/cpFromTablo
+/config/scripts/cpFromTablo >> /var/log/cron.log 2>&1
 
 exit 0
