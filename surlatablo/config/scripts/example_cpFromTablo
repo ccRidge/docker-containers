@@ -14,15 +14,11 @@ if [ ! $PARITYCHECKINPROGRESS ]; then
 
     # always convert shows if they match last air date of "today", or "yesterday".
 
-    # first process tv series recordings.  This works because only tv series have "original_air_date" metadata.
-    # after some time trying multiple methods, I think I prefer just leaving in the commercials
-    # and creating the subtitles for tv series conversion.
-    /config/scripts/surlatablo.py --convert --ccaption --keepdir s --query original_air_date~="($TODAY|$YESTERDAY)" 
+    # first process tv series recordings, leaving commercials and extracting subtitles as SRT
+    /config/scripts/surlatablo.py -n -q lair_date~="($TODAY|$YESTERDAY)" | awk '{if ($2 =="TV") system ("/config/scripts/surlatablo.py --convert --ccaption --keepdir s --query rec_id~=" $1); }'
 
-    # next process again.  This
-    # should just end up being the rest, since no clobber is being used,
-    # so let's try and zap commercials here.
-    /config/scripts/surlatablo.py --convert -z --query lair_date~="($TODAY|$YESTERDAY)" Mp4z 
+    # second process movies, and zap the commercials with the second Mp4z re-encode to sync up audio and video
+    /config/scripts/surlatablo.py -n -q lair_date~="($TODAY|$YESTERDAY)" | awk '{if ($2 =="Movie") system ("/config/scripts/surlatablo.py --convert -z --query rec_id~=" $1 " Mp4z"); }'
 
 fi
 exit 0
