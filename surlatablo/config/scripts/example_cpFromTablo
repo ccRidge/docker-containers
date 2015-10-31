@@ -12,13 +12,17 @@ cp -u /config/conf/surlatablo.conf /root/surlatablo.conf
 
 if [ ! $PARITYCHECKINPROGRESS ]; then
 
-    # always convert shows if they match last air date of "today", or "yesterday".
+    # Process TV series first, and we only grab them if they aired yesterday or today.
+    # Leave the commercials since fast forward with thumbnails works really well on the roku,
+    # and I do not expect to be keeping these files after they have been watched.
+    # Also, extract SRT files for closed captioning.
+    /config/scripts/surlatablo.py --noupdate --query lair_date~="($TODAY|$YESTERDAY)" | awk '{ if ($2 == "TV") system ("/config/scripts/surlatablo.py --convert --ccaption --keepdir s --query rec_id~=" $1); }'
 
-    # first process tv series recordings, leaving commercials and extracting subtitles as SRT
-    /config/scripts/surlatablo.py -n -q lair_date~="($TODAY|$YESTERDAY)" | awk '{if ($2 =="TV") system ("/config/scripts/surlatablo.py --convert --ccaption --keepdir s --query rec_id~=" $1); }'
-
-    # second process movies, and zap the commercials with the second Mp4z re-encode to sync up audio and video
-    /config/scripts/surlatablo.py -n -q lair_date~="($TODAY|$YESTERDAY)" | awk '{if ($2 =="Movie") system ("/config/scripts/surlatablo.py --convert -z --query rec_id~=" $1 " Mp4z"); }'
+    # Process Movies next, and again, we only grab them if they aired yesterday or today.
+    # Try and zap commercials since these files will probably be kept even after they have
+    # been watched.  We do not keep subtitles because that features is not working with
+    # zapped commercial output.
+    /config/scripts/surlatablo.py --noupdate --query lair_date~="($TODAY|$YESTERDAY)" | awk '{ if ($2 == "Movie") system ("/config/scripts/surlatablo.py --convert -z --query rec_id~=" $1 " Mp4z"); }'
 
 fi
 exit 0
