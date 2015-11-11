@@ -1,7 +1,7 @@
 # OpenVAS-8
 # Based on: https://github.com/mikesplain/openvas-docker/blob/master/Dockerfile/
 
-FROM phusion/baseimage:0.9.15
+FROM phusion/baseimage:rel-0.9.15
 MAINTAINER ccridge <cl.mail.forwarding@gmail.com>
 RUN add-apt-repository ppa:mrazavi/openvas -y && \
     apt-get update -y && \
