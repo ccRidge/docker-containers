@@ -24,7 +24,7 @@ dCONF=/config/conf
 
 mkdir -p $SLT_TEMP $dSCRIPTS $dCONF
 
-if [ -n "$VERSION" && "$VERSION" != "noupdate" ]; then  # $VERSION is non-zero length and is not equal to `noupdate`
+if [ -n "$VERSION" ] && [ "$VERSION" != "noupdate" ]; then  # $VERSION is non-zero length and is not equal to `noupdate`
     wget "http://endlessnow.com/ten/SurLaTablo/$VERSION" -P $SLT_TEMP
 fi
 # Wget non-zero exit status or null $VERSION will trigger best effort,
