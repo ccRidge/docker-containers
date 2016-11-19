@@ -5,10 +5,12 @@ YESTERDAY=`date --date='yesterday' +"%Y-%m-%d"`
 PARITYCHECKINPROGRESS=`cat /proc/mdcmd | grep "mdResync=1"`
 
 # reference surlatablo call that might come in handy commented out here.
-# /config/scripts/surlatablo.py --convert --ccaption --query lair_date~="$TODAY|$YESTERDAY" 
+# /config/scripts/surlatablo.py --convert --ccaption --query lair_date~="$TODAY|$YESTERDAY"
+# /config/scripts/surlatablo.py --convert --ccaption --query lair_date~="2016-11-17|2016-11-18"
 
 # copy surlatablo configuration to the location the python script expects
-cp -u /config/conf/surlatablo.conf /root/surlatablo.conf
+# since surlatablo-2.0b1-py, config was renamed to surlatablo2.conf
+cp -u /config/conf/surlatablo.conf /root/surlatablo2.conf
 
 if [ ! $PARITYCHECKINPROGRESS ]; then
 
