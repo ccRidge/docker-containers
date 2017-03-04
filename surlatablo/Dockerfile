@@ -1,4 +1,4 @@
-FROM lsiobase/xenial
+FROM phusion/baseimage:0.9.17
 
 MAINTAINER ccridge <cl.mail.forwarding@gmail.com>
 # Based on the work of Eric Schultz <eric@startuperic.com> and needo <needo@superhero.org>
