@@ -1,15 +1,11 @@
-FROM phusion/baseimage:0.9.17
+FROM lsiobase/xenial
 
 MAINTAINER ccridge <cl.mail.forwarding@gmail.com>
 # Based on the work of Eric Schultz <eric@startuperic.com> and needo <needo@superhero.org>
 
 ENV DEBIAN_FRONTEND noninteractive
 
-# Use baseimage-docker's init system
-CMD ["/sbin/my_init"]
-
 # Install python and encoder tools
-RUN add-apt-repository "deb http://ppa.launchpad.net/mc3man/trusty-media/ubuntu trusty main"
 RUN apt-get update && apt-get install -y --force-yes ffmpeg python-pyudev wget
 RUN apt-get clean
 
