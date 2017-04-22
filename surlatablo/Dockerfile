@@ -5,9 +5,6 @@ MAINTAINER ccridge <cl.mail.forwarding@gmail.com>
 
 ENV DEBIAN_FRONTEND noninteractive
 
-# Use baseimage-docker's init system
-CMD ["/sbin/my_init"]
-
 # Install python and encoder tools
 RUN apt-get update && apt-get install -y --force-yes ffmpeg python-pyudev wget
 RUN apt-get clean
