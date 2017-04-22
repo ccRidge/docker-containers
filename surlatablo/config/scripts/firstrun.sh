@@ -42,7 +42,4 @@ chmod +x /config/scripts/surlatablo.py
 cp /root/surlatablo/conf/example_surlatablo.conf /config/conf/example_surlatablo.conf
 cp /root/surlatablo/scripts/example_cpFromTablo /config/scripts/example_cpFromTablo
 
-touch /var/log/cron.log
-nohup /bin/bash -c "/usr/bin/tail -f /var/log/cron.log &"
-
 exit 0
