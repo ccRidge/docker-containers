@@ -39,9 +39,7 @@ chmod +x /config/scripts/surlatablo.py
 
 # Example files for user specialization.
 # Update these and remove their "example_" prefix to enable their use.
-cp /root/surlatablo/conf/example_surlatablo.conf /config/conf/example_surlatablo.conf
-cp /root/surlatablo/scripts/example_cpFromTablo /config/scripts/example_cpFromTablo
-
-service cron start
+cp /defaults/example_surlatablo.conf /config/conf/example_surlatablo.conf
+cp /defaults/example_cpFromTablo /config/scripts/example_cpFromTablo
 
 exit 0
