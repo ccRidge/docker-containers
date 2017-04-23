@@ -1,4 +1,4 @@
 #!/usr/bin/with-contenv bash
 
 echo "Starting Cron Daemon."
-exec service cron start
+exec cron -f
