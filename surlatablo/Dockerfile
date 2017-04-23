@@ -24,8 +24,3 @@ ADD /bin/ccextractor /usr/local/bin/ccextractor
 RUN chmod +x /etc/cron.hourly/cpFromTablo \
              /root/surlatablo/scripts/example_cpFromTablo \
              /usr/local/bin/ccextractor
-
-# Add firstrun.sh to execute during container startup
-RUN mkdir -p /etc/my_init.d
-ADD /config/scripts/firstrun.sh /etc/my_init.d/firstrun.sh
-RUN chmod +x /etc/my_init.d/firstrun.sh
