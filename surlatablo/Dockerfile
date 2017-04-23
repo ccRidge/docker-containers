@@ -14,9 +14,9 @@ VOLUME ["/data"]
 VOLUME ["/config"]
 VOLUME ["/transcode"]
 
+# add local files
+COPY root/ /
+
 RUN chmod +x /etc/cron.hourly/cpFromTablo \
              /defaults/example_cpFromTablo \
              /usr/local/bin/ccextractor
-
-# add local files
-COPY root/ /
