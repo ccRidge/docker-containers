@@ -14,8 +14,9 @@ VOLUME ["/data"]
 VOLUME ["/config"]
 VOLUME ["/transcode"]
 
-RUN mkdir -p /root/surlatablo/conf /root/surlatablo/scripts
-
 RUN chmod +x /etc/cron.hourly/cpFromTablo \
              /defaults/example_cpFromTablo \
              /usr/local/bin/ccextractor
+
+# add local files
+COPY root/ /
