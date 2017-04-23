@@ -6,7 +6,7 @@ MAINTAINER ccridge <cl.mail.forwarding@gmail.com>
 ENV DEBIAN_FRONTEND noninteractive
 
 # Install python and encoder tools
-RUN apt-get update && apt-get install -y --force-yes ffmpeg python-pyudev wget
+RUN apt-get update && apt-get install -y --force-yes ffmpeg python-pyudev wget cron
 RUN apt-get clean
 
 # Bring in our config and data files path
