@@ -25,7 +25,7 @@ if [ ! $PARITYCHECKINPROGRESS ]; then
     # Try and zap commercials since these files will probably be kept even after they have
     # been watched.  We do not keep subtitles because that features is not working with
     # zapped commercial output.
-    /config/scripts/surlatablo.py --query lair_date~="($TODAY|$YESTERDAY)" | awk '{ if ($3 == "Movie") system ("/config/scripts/surlatablo.py --convert -z --query rec_id~=" $1 " Mp4z-bd"); }' > /dev/null
+    /config/scripts/surlatablo.py --query lair_date~="($TODAY|$YESTERDAY)" | awk '{ if ($3 == "Movie") system ("/config/scripts/surlatablo.py --convert -z --query rec_id~=" $1 " Mp4z"); }' > /dev/null
 
     # Experimental:  delete out unprotected `TV` recordings that are older than our configured `OLD` date.
     printf "\nWorking on deleting the following TV recordings because they were recorded before $TWOMONTHSAGO_FRIENDLY:\n"
