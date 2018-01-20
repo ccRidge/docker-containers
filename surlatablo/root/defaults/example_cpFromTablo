@@ -4,7 +4,7 @@ TODAY=`date +"%Y-%m-%d"`
 YESTERDAY=`date --date='yesterday' +"%Y-%m-%d"`
 TWOMONTHSAGO=`date --date='2 months ago' +"%Y-%m-%dT00:00:00-0000"`
 TWOMONTHSAGO_FRIENDLY=`echo $TWOMONTHSAGO | sed -r 's/^(.*?)T00:00:00-0000$/\1/'`
-PARITYCHECKINPROGRESS=`cat /proc/mdcmd | grep "mdResync=1"`
+PARITYCHECKINPROGRESS=`cat /proc/mdstat | grep "mdResync=1"`
 
 # reference surlatablo call that might come in handy commented out here.
 # /config/scripts/surlatablo.py --convert --ccaption --query lair_date~="$TODAY|$YESTERDAY" 
