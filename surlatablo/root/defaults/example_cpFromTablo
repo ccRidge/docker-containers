@@ -11,7 +11,7 @@ PARITYCHECKINPROGRESS=`cat /proc/mdcmd | grep "mdResync=1"`
 
 # copy surlatablo configuration to the location the python script expects
 # since surlatablo-2.0b1-py, config was renamed to surlatablo2.conf
-cp -u /config/conf/surlatablo.conf /root/surlatablo2.conf
+cp -u /config/conf/surlatablo2.conf /root/surlatablo2.conf
 
 if [ ! $PARITYCHECKINPROGRESS ]; then
 
