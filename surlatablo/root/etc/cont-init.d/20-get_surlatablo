@@ -41,6 +41,5 @@ chmod +x /config/scripts/surlatablo.py
 # Update these and remove their "example_" prefix to enable their use.
 cp /defaults/example_surlatablo2.conf /config/conf/example_surlatablo2.conf
 cp /defaults/example_cpFromTablo.py /config/scripts/example_cpFromTablo.py
-chmod +x /config/scripts/example_cpFromTablo.py
 
 exit 0
