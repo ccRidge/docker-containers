@@ -76,25 +76,29 @@ if __name__ == '__main__':
         (cmd_return_code, cmd_out) = run_cmd(cmd)
         if not cmd_return_code:
             for line in cmd_out.splitlines():
-                if re.search('RECORDING/BUSY', line) is None:
+
+                try:
                     (rec_id, date, meta_type, title) = line.split("\t")
-                    time_delta = datetime.date.today() - datetime.datetime.strptime(date, '%Y-%m-%d').date()
-                    if time_delta <= COPY_WINDOW:
-                        cmd_list = None
-                        if meta_type == 'TV':
-                            cmd_list = [SURLATABLO_PY, '--query', 'rec_id~=' + rec_id, '--convert', '--ccaption']
-                        elif meta_type == 'MOVIE':
-                            cmd_list = [SURLATABLO_PY, '--query', 'rec_id~=' + rec_id, '--convert', '--zapcommercials', 'Mp4z']
-                        if cmd_list is not None:
-                            cmd = " ".join(cmd_list)
-                            (cmd_return_code, cmd_out) = run_cmd(cmd)
-                            print cmd_out
-                    elif time_delta > DEL_WINDOW:
-                        if meta_type == 'TV':
-                            cmd_list = [SURLATABLO_PY, '--query', 'rec_id~=' + rec_id, '--convert', '--noprotected', 'DeleteX']
-                        else:
-                            print "[Info] Consider deleting: %s" % line
+                except ValueError:
+                    continue
+
+                time_delta = datetime.date.today() - datetime.datetime.strptime(date, '%Y-%m-%d').date()
+                if time_delta <= COPY_WINDOW:
+                    cmd_list = None
+                    if meta_type == 'TV':
+                        cmd_list = [SURLATABLO_PY, '--query', 'rec_id~=' + rec_id, '--convert', '--ccaption', '--debug']
+                    elif meta_type == 'MOVIE':
+                        cmd_list = [SURLATABLO_PY, '--query', 'rec_id~=' + rec_id, '--convert', '--zapcommercials', '--debug', 'Mp4z']
+                    if cmd_list is not None:
+                        cmd = " ".join(cmd_list)
+                        (cmd_return_code, cmd_out) = run_cmd(cmd)
+                        print cmd_out
+                elif time_delta > DEL_WINDOW:
+                    if meta_type == 'TV':
+                        cmd_list = [SURLATABLO_PY, '--query', 'rec_id~=' + rec_id, '--convert', '--noprotected', '--debug', 'DeleteX']
                     else:
-                        time_until_auto_delete = DEL_WINDOW - time_delta
-                        if time_until_auto_delete.days <= 7:
-                            print "[Warn] Auto delete in %d days: %s" % (time_until_auto_delete.days, line)
+                        print "[Info] Consider deleting: %s" % line
+                else:
+                    time_until_auto_delete = DEL_WINDOW - time_delta
+                    if time_until_auto_delete.days <= 7:
+                        print "[Warn] Auto delete in %d days: %s" % (time_until_auto_delete.days, line)
