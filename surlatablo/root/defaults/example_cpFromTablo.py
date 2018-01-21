@@ -45,11 +45,12 @@ def get_md_resync():
     If neither is found, perform the fetch.
     """
 
-    cmd = 'cat /proc/mdstat | egrep "mdResync=[01]"'
+    cmd = 'cat /proc/mdstat | grep "mdResync=1"'
     (cmd_return_code, cmd_out) = run_cmd(cmd)
 
     pf = True
-    if not cmd_return_code and cmd_out.rstrip() == 'mdResync=1':
+    # grep return code will be non-zero if no match is found.
+    if not cmd_return_code:
         pf = False
         print "[Warn] skipping fetch from tablo due to parity sync in progress."
     return pf
