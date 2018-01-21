@@ -82,16 +82,16 @@ if __name__ == '__main__':
                     if time_delta <= COPY_WINDOW:
                         cmd_list = None
                         if meta_type == 'TV':
-                            cmd_list = [SURLATABLO_PY, '--query', 'rec_id~=' + rec_id, '--convert', '--ccaption', '--debug']
+                            cmd_list = [SURLATABLO_PY, '--query', 'rec_id~=' + rec_id, '--convert', '--ccaption']
                         elif meta_type == 'MOVIE':
-                            cmd_list = [SURLATABLO_PY, '--query', 'rec_id~=' + rec_id, '--convert', '--zapcommercials', '--debug', 'Mp4z']
+                            cmd_list = [SURLATABLO_PY, '--query', 'rec_id~=' + rec_id, '--convert', '--zapcommercials', 'Mp4z']
                         if cmd_list is not None:
                             cmd = " ".join(cmd_list)
                             (cmd_return_code, cmd_out) = run_cmd(cmd)
                             print cmd_out
                     elif time_delta > DEL_WINDOW:
                         if meta_type == 'TV':
-                            cmd_list = [SURLATABLO_PY, '--query', 'rec_id~=' + rec_id, '--convert', '--noprotected', '--debug', 'DeleteX']
+                            cmd_list = [SURLATABLO_PY, '--query', 'rec_id~=' + rec_id, '--convert', '--noprotected', 'DeleteX']
                         else:
                             print "[Info] Consider deleting: %s" % line
                     else:
