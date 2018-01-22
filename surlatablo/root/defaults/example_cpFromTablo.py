@@ -69,7 +69,7 @@ if __name__ == '__main__':
     """
     COPY_WINDOW = datetime.timedelta(days=2)
     DEL_WINDOW = datetime.timedelta(weeks=8)
-    SURLATABLO_PY = './surlatablo.py'
+    SURLATABLO_PY = '/config/scripts/surlatablo.py'
 
     if get_md_resync():
         cmd_list = [SURLATABLO_PY, '--query', 'lair_date~=""']
