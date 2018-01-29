@@ -1,9 +1,9 @@
 #!/usr/bin/python
 
 import datetime
+import os
 import re
 import subprocess
-import os
 import sys
 import tempfile
 
@@ -17,7 +17,6 @@ def run_cmd(cmd):
 
     my_output = tempfile.NamedTemporaryFile(delete=False, suffix=".txt")
     return_code = -999
-    print ("issuing cmd: %s" % cmd)
     try:
         return_code = subprocess.call(cmd, close_fds=ON_POSIX, shell=True,
                                       stdout=my_output, stderr=my_output)
@@ -70,6 +69,8 @@ if __name__ == '__main__':
     COPY_WINDOW = datetime.timedelta(days=2)
     DEL_WINDOW = datetime.timedelta(weeks=8)
     SURLATABLO_PY = '/config/scripts/surlatablo.py'
+    CURRENT_HOUR = datetime.datetime.time(datetime.datetime.now()).hour
+    AUTO_DEL_WARN = 7
 
     if get_md_resync():
         cmd_list = [SURLATABLO_PY, '--query', 'lair_date~=""']
@@ -93,13 +94,14 @@ if __name__ == '__main__':
                     if cmd_list is not None:
                         cmd = " ".join(cmd_list)
                         (cmd_return_code, cmd_out) = run_cmd(cmd)
-                        print cmd_out
+                        if not re.search('try --clobber', cmd_out):
+                            print ("[Info] %s" % cmd_out)
                 elif time_delta > DEL_WINDOW:
                     if meta_type == 'TV':
                         cmd_list = [SURLATABLO_PY, '--query', 'rec_id~=' + rec_id, '--convert', '--noprotected', 'DeleteX']
-                    else:
+                    elif CURRENT_HOUR % 24 == 0:
                         print "[Info] Consider deleting: %s" % line
-                else:
+                elif CURRENT_HOUR % 24 == 0:
                     time_until_auto_delete = DEL_WINDOW - time_delta
-                    if time_until_auto_delete.days <= 7:
+                    if time_until_auto_delete.days <= AUTO_DEL_WARN:
                         print "[Warn] Auto delete in %d days: %s" % (time_until_auto_delete.days, line)
