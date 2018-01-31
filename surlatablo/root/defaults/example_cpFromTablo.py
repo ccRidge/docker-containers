@@ -95,7 +95,7 @@ if __name__ == '__main__':
                         cmd = " ".join(cmd_list)
                         (cmd_return_code, cmd_out) = run_cmd(cmd)
                         if not re.search('try --clobber', cmd_out):
-                            print ("[Info] %s" % cmd_out)
+                            print ("[Info] Retrieved: %s" % line)
                 elif time_delta > DEL_WINDOW:
                     if meta_type == 'TV':
                         cmd_list = [SURLATABLO_PY, '--query', 'rec_id~=' + rec_id, '--convert', '--noprotected', 'DeleteX']
