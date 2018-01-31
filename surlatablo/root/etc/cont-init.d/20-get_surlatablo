@@ -25,12 +25,13 @@ dCONF=/config/conf
 mkdir -p $SLT_TEMP $dSCRIPTS $dCONF
 
 if [ -n "$VERSION" ] && [ "$VERSION" != "noupdate" ]; then  # $VERSION is non-zero length and is not equal to `noupdate`
-    wget "http://endlessnow.com/ten/SurLaTablo/$VERSION" -P $SLT_TEMP
+    wget "http://endlessnow.com/ten/SurLaTablo/$VERSION" -P $SLT_TEMP > /dev/null 2>&1
 fi
 # Wget non-zero exit status or null $VERSION will trigger best effort,
 # most recently modified surlatablo script.
 if [ $? -ne 0 ] || [ -z "$VERSION" ]; then
-    wget -r -l1 -nd "http://endlessnow.com/ten/SurLaTablo/" -P $SLT_TEMP -A "$SAR"
+    echo "[INFO] Retrieving newest surlatablo.py file"
+    wget -r -l1 -nd "http://endlessnow.com/ten/SurLaTablo/" -P $SLT_TEMP -A "$SAR" > /dev/null 2>&1
 fi
     fileToKeep=`ls $SLT_TEMP/$SAR -t | head -1`
     cp $fileToKeep /config/scripts/surlatablo.py
