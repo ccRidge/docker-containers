@@ -1,9 +1,9 @@
 #!/usr/bin/python
 
 import datetime
-import subprocess
 import os
 import re
+import subprocess
 import sys
 import tempfile
 
