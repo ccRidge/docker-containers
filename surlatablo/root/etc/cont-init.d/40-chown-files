@@ -4,5 +4,5 @@ PUID=${PUID:-911}
 PGID=${PGID:-911}
 
 # recursive permissions
-chown $PUID:$PGID -R \
-	/config
+chown $PUID:$PGID -R /config
+chmod 775 -R /config
