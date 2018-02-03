@@ -43,6 +43,11 @@ chmod +x /config/scripts/surlatablo.py
 cp /defaults/config/conf/surlatablo2.conf /config/conf/surlatablo2.conf
 cp /defaults/config/scripts/cpFromTablo.py /config/scripts/cpFromTablo.py
 
+# Handle passing in IP address of a single Tablo as container variable
+if [ -n "$TABLO_IP" ]; then 
+    sed -i "s/^TABLO_IPS = .*?/TABLO_IPS = ['$TABLO_IP']/g" /config/conf/surlatablo2.conf
+fi
+
 # symbolic link configuration file to where the surlatablo script expects it
 ln -s /config/conf/surlatablo2.conf /root/surlatablo2.conf
 
