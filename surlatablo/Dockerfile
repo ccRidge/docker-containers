@@ -18,5 +18,5 @@ VOLUME ["/transcode"]
 COPY root/ /
 
 RUN chmod +x /etc/cron.hourly/cpFromTablo \
-             /config/scripts/cpFromTablo.py \
+             /defaults/config/scripts/cpFromTablo.py \
              /usr/local/bin/ccextractor
