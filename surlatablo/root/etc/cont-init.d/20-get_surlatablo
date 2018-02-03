@@ -38,6 +38,11 @@ fi
 rm -rf $SLT_TEMP
 chmod +x /config/scripts/surlatablo.py
 
+
+# Default config files mapped over to external volumes so they can be accessed outside of the container
+cp /defaults/config/conf/surlatablo2.conf /config/conf/surlatablo2.conf
+cp /defaults/config/scripts/cpFromTablo.py /config/scripts/cpFromTablo.py
+
 # symbolic link configuration file to where the surlatablo script expects it
 ln -s /config/conf/surlatablo2.conf /root/surlatablo2.conf
 
