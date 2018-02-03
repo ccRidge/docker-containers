@@ -49,6 +49,6 @@ if [ -n "$TABLO_IP" ]; then
 fi
 
 # symbolic link configuration file to where the surlatablo script expects it
-ln -s /config/conf/surlatablo2.conf /root/surlatablo2.conf
+ln -sf /config/conf/surlatablo2.conf /root/surlatablo2.conf
 
 exit 0
