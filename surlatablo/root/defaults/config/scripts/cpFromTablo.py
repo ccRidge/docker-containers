@@ -8,7 +8,7 @@ import sys
 import tempfile
 
 
-def log(level='INFO', message='Your message goes here!'):
+def log(level='Info', message='Your message goes here!'):
     """A simply logging interface.
 
     Maintains consistency of logging look and feel.
@@ -31,7 +31,7 @@ def run_cmd(cmd):
         return_code = subprocess.call(cmd, close_fds=ON_POSIX, shell=True,
                                       stdout=my_output, stderr=my_output)
     except OSError:
-        log('ERROR', 'Execution of cmd=%s failed' % cmd)
+        log('Error', 'Execution of cmd=%s failed' % cmd)
     my_output.close()
 
     my_input = open(my_output.name, 'r').readlines()
@@ -82,7 +82,7 @@ if __name__ == '__main__':
     AUTO_DEL_WARN = 7
 
     if get_md_resync():
-        log('INFO', 'Querying tablo for new shows')
+        log('Info', 'Querying tablo for new shows')
         cmd_list = [SURLATABLO_PY, '--query', 'lair_date~=""']
         cmd = " ".join(cmd_list)
         (cmd_return_code, cmd_out) = run_cmd(cmd)
