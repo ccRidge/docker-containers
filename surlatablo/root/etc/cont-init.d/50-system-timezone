@@ -3,6 +3,7 @@
 # reconfigure the system timezone to match the user-space timezone.
 # This method takes advantage of the unRaid OS's "TZ" environment
 # variable, which is automatically created on container instantiation.
-echo $TZ > /etc/timezone
+rm /etc/timezone
+ln -s /usr/share/zoneinfo/$TZ /etc/localtime
 export DEBCONF_NONINTERACTIVE_SEEN=true DEBIAN_FRONTEND=noninteractive
 dpkg-reconfigure tzdata
