@@ -53,11 +53,13 @@ def get_md_resync():
 
     If neither is found, perform the fetch.
     """
-    cmd = 'cat /proc/mdstat | grep "mdResync=1"'
+    # A failed match means no parity check is in progress,
+    # since either the `mdResync` string does not exist (software RAID disabled),
+    # or it the value is zero (parity check not in progress).
+    cmd = 'cat /proc/mdstat | egrep "mdResync=[^0]"'
     (cmd_return_code, cmd_out) = run_cmd(cmd)
 
     pf = True
-    # grep return code will be non-zero if no match is found.
     if not cmd_return_code:
         pf = False
         log('Warn', 'Skipping fetch from tablo due to parity sync in progress')
