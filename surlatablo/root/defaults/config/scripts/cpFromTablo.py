@@ -108,7 +108,7 @@ if __name__ == '__main__':
                         (cmd_return_code, cmd_out) = run_cmd(cmd)
                         if not re.search('try --clobber', cmd_out):
                             log('Info', 'Retrieved: %s' % line)
-                elif time_delta > DEL_WINDOW:
+                elif time_delta >= DEL_WINDOW:
                     if meta_type == 'TV':
                         cmd_list = [SURLATABLO_PY, '--query', 'rec_id~=' + rec_id, '--convert', '--noprotected', 'DeleteX']
                     elif CURRENT_HOUR % 24 == 0:
