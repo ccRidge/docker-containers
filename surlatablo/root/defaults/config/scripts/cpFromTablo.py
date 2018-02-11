@@ -84,7 +84,7 @@ if __name__ == '__main__':
     AUTO_DEL_WARN = 7
 
     if get_md_resync():
-        log('Info', 'Querying tablo for new shows')
+        # log('Info', 'Querying tablo for new shows')
         cmd_list = [SURLATABLO_PY, '--query', 'lair_date~=""']
         cmd = " ".join(cmd_list)
         (cmd_return_code, cmd_out) = run_cmd(cmd)
@@ -111,6 +111,7 @@ if __name__ == '__main__':
                 elif time_delta >= DEL_WINDOW:
                     if meta_type == 'TV':
                         cmd_list = [SURLATABLO_PY, '--query', 'rec_id~=' + rec_id, '--convert', '--noprotected', 'DeleteX']
+                        log('Info', 'Deleted: %s' % line)
                     elif CURRENT_HOUR % 24 == 0:
                         log ('Info', 'Consider deleting: %s' % line)
                 elif CURRENT_HOUR % 24 == 0:
