@@ -88,33 +88,36 @@ if __name__ == '__main__':
         cmd_list = [SURLATABLO_PY, '--query', 'lair_date~=""']
         cmd = " ".join(cmd_list)
         (cmd_return_code, cmd_out) = run_cmd(cmd)
+
         if not cmd_return_code:
             for line in cmd_out.splitlines():
+                cmd_list = None
 
                 try:
                     (rec_id, date, meta_type, title) = line.split("\t")
                 except ValueError:
                     continue
 
-                time_delta = datetime.date.today() - datetime.datetime.strptime(date, '%Y-%m-%d').date()
-                if time_delta <= COPY_WINDOW:
-                    cmd_list = None
+                TIME_DELTA = datetime.date.today() - datetime.datetime.strptime(date, '%Y-%m-%d').date()
+                TIME_UNTIL_AUTO_DELETE = DEL_WINDOW - TIME_DELTA
+                if TIME_DELTA <= COPY_WINDOW:
                     if meta_type == 'TV':
                         cmd_list = [SURLATABLO_PY, '--query', 'rec_id~=' + rec_id, '--convert', '--ccaption']
                     elif meta_type == 'MOVIE':
                         cmd_list = [SURLATABLO_PY, '--query', 'rec_id~=' + rec_id, '--convert', '--zapcommercials', 'Mp4z']
-                    if cmd_list is not None:
-                        cmd = " ".join(cmd_list)
-                        (cmd_return_code, cmd_out) = run_cmd(cmd)
-                        if not re.search('try --clobber', cmd_out):
-                            log('Info', 'Retrieved: %s' % line)
-                elif time_delta >= DEL_WINDOW:
+                elif TIME_DELTA >= DEL_WINDOW:
                     if meta_type == 'TV':
                         cmd_list = [SURLATABLO_PY, '--query', 'rec_id~=' + rec_id, '--convert', '--noprotected', 'DeleteX']
+
+                if cmd_list is not None:
+                    cmd = " ".join(cmd_list)
+                    (cmd_return_code, cmd_out) = run_cmd(cmd)
+                    if 'DeleteX' in cmd_list:
                         log('Info', 'Deleted: %s' % line)
-                    elif CURRENT_HOUR % 24 == 0:
-                        log ('Info', 'Consider deleting: %s' % line)
+                    elif not re.search('try --clobber', cmd_out):
+                        log('Info', 'Retrieved: %s' % line)
                 elif CURRENT_HOUR % 24 == 0:
-                    time_until_auto_delete = DEL_WINDOW - time_delta
-                    if time_until_auto_delete.days <= AUTO_DEL_WARN:
-                        log('Warn', 'Auto delete in %d days: %s' % (time_until_auto_delete.days, line))
+                    if TIME_DELTA >= DEL_WINDOW:
+                        log ('Info', 'Consider deleting: %s' % line)
+                    elif TIME_UNTIL_AUTO_DELETE.days <= AUTO_DEL_WARN:
+                        log('Warn', 'Auto delete in %d days: %s' % (TIME_UNTIL_AUTO_DELETE.days, line))
