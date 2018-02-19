@@ -8,13 +8,17 @@ import sys
 import tempfile
 
 
-def log(level='Info', message='Your message goes here!'):
+def log(color=None, message='Your message goes here!'):
     """A simply logging interface.
 
-    Maintains consistency of logging look and feel.
+    Maintains consistency of logging look and feel.  Colorizing based on 'plugins/dynamix/include/ColorCoding.php'
     """
     NOW = datetime.datetime.now()
-    print ("{0:8s}".format("[%s] " % level)) + NOW.strftime("%m/%d/%y %I:%M%p") + " - %s " % message
+    CODING = { 'Red': 'emask', 'Yellow': 'kill', 'Blue': '_sse', 'Green': ': md'}
+    if color in CODING:
+	print (NOW.strftime("%m/%d/%y %I:%M%p") + " - %s (%s) ") % (message, CODING[color])
+    else:
+	print (NOW.strftime("%m/%d/%y %I:%M%p") + " - %s") % (message)
 
 
 def run_cmd(cmd):
@@ -31,7 +35,7 @@ def run_cmd(cmd):
         return_code = subprocess.call(cmd, close_fds=ON_POSIX, shell=True,
                                       stdout=my_output, stderr=my_output)
     except OSError:
-        log('Error', 'Execution of cmd=%s failed' % cmd)
+        log('Red', 'Execution of cmd=%s failed' % cmd)
     my_output.close()
 
     my_input = open(my_output.name, 'r').readlines()
@@ -62,7 +66,7 @@ def get_md_resync():
     pf = True
     if not cmd_return_code:
         pf = False
-        log('Warn', 'Skipping fetch from tablo due to parity sync in progress')
+        log('Yellow', 'Skipping fetch from tablo due to parity sync in progress')
     return pf
 
 
@@ -84,7 +88,12 @@ if __name__ == '__main__':
     AUTO_DEL_WARN = 7
 
     if get_md_resync():
-        # log('Info', 'Querying tablo for new shows')
+        # log(message='Querying tablo for new shows')
+        # log(color='Red', message='Test for red')
+        # log(color='Yellow', message='Test for yellow')
+        # log(color='Blue', message='Test for blue')
+        # log(color='Green', message='Test for green')
+
         cmd_list = [SURLATABLO_PY, '--query', 'lair_date~=""']
         cmd = " ".join(cmd_list)
         (cmd_return_code, cmd_out) = run_cmd(cmd)
@@ -113,11 +122,11 @@ if __name__ == '__main__':
                     cmd = " ".join(cmd_list)
                     (cmd_return_code, cmd_out) = run_cmd(cmd)
                     if 'DeleteX' in cmd_list:
-                        log('Info', 'Deleted: %s' % line)
+                        log('Red', 'Deleted: %s' % line)
                     elif not re.search('try --clobber', cmd_out):
-                        log('Info', 'Retrieved: %s' % line)
+                        log('Green', 'Retrieved: %s' % line)
                 elif CURRENT_HOUR % 24 == 0:
                     if TIME_DELTA >= DEL_WINDOW:
-                        log ('Info', 'Consider deleting: %s' % line)
+                        log ('Yellow', 'Consider deleting: %s' % line)
                     elif TIME_UNTIL_AUTO_DELETE.days <= AUTO_DEL_WARN:
-                        log('Warn', 'Auto delete in %d days: %s' % (TIME_UNTIL_AUTO_DELETE.days, line))
+                        log('Blue', 'Auto delete in %d days: %s' % (TIME_UNTIL_AUTO_DELETE.days, line))
