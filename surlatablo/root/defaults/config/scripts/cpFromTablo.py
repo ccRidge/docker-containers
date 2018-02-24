@@ -16,9 +16,9 @@ def log(color=None, message='Your message goes here!'):
     NOW = datetime.datetime.now()
     CODING = { 'Red': 'emask', 'Yellow': 'kill', 'Blue': '_sse', 'Green': ': md'}
     if color in CODING:
-	print (NOW.strftime("%m/%d/%y %I:%M%p") + " - %s (%s) ") % (message, CODING[color])
+        print (NOW.strftime("%m/%d/%y %I:%M%p") + " - %s (%s) ") % (message, CODING[color])
     else:
-	print (NOW.strftime("%m/%d/%y %I:%M%p") + " - %s") % (message)
+        print (NOW.strftime("%m/%d/%y %I:%M%p") + " - %s") % (message)
 
 
 def run_cmd(cmd):
