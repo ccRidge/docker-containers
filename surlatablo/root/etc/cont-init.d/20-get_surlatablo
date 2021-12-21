@@ -3,45 +3,23 @@
 
 #######################################
 #
-# SurLaTablo
-#
-# Use $VERSION, if specified, or just try our best
-#  to grab the latest surlatablo python script from 
-#  http://endlessnow.com/ten/SurLaTablo/.
-# The maintainer of this keeps version numbers in the file names,
-#  so we'll never know the exact file to grab for sure.
-# Best effort method of determining the file to grab is 
-#  based on pattern matching, then grabbing the newest
-# file by modification time.
+# The SurLaTablo python project may be nearing end of support:
+#  The hosting website (http://endlessnow.com/ten/SurLaTablo/)
+#  has expired security certificates and the script has been v2.3
+#  for a couple years now.
 #
 #######################################
 
-# Candidate files match the following pattern
-SAR=surlatablo-*-py*
-SLT_TEMP=/tmp/surlatablo
-dSCRIPTS=/config/scripts
-dCONF=/config/conf
+sVERSION=surlatablo-2.3-py.txt
 
-mkdir -p $SLT_TEMP $dSCRIPTS $dCONF
-
-if [ -n "$VERSION" ] && [ "$VERSION" != "noupdate" ]; then  # $VERSION is non-zero length and is not equal to `noupdate`
-    wget "http://endlessnow.com/ten/SurLaTablo/$VERSION" -P $SLT_TEMP > /dev/null 2>&1
-fi
-# Wget non-zero exit status or null $VERSION will trigger best effort,
-# most recently modified surlatablo script.
-if [ $? -ne 0 ] || [ -z "$VERSION" ]; then
-    echo "[INFO] Retrieving newest surlatablo.py file"
-    wget -r -l1 -nd "http://endlessnow.com/ten/SurLaTablo/" -P $SLT_TEMP -A "$SAR" > /dev/null 2>&1
-fi
-    fileToKeep=`ls $SLT_TEMP/$SAR -t | head -1`
-    cp $fileToKeep /config/scripts/surlatablo.py
-rm -rf $SLT_TEMP
-chmod +x /config/scripts/surlatablo.py
-
+dSCRIPTS=/config/scripts/
+dCONF=/config/conf/
+mkdir -p $dSCRIPTS $dCONF
 
 # Default config files mapped over to external volumes so they can be accessed outside of the container
 cp /defaults/config/conf/surlatablo2.conf /config/conf/surlatablo2.conf
 cp /defaults/config/scripts/cpFromTablo.py /config/scripts/cpFromTablo.py
+cp /defaults/config/scripts/$sVERSION /config/scripts/surlatablo.py
 
 # Handle passing in IP address of a single Tablo as container variable
 if [ -n "$TABLO_IP" ]; then 
