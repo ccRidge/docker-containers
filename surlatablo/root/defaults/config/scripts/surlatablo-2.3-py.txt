@@ -1,0 +1,3382 @@
+#!/usr/bin/python
+"""
+Update cache or -n (--noupdate) and search cache for rec_ids:
+ surlatablo.py -q search_pattern
+
+Update cache with new recording and deletions
+ surlatablo.py 
+
+Search for recordings and convert them
+ surlatablo.py -n -q search_pattern -c
+
+General format
+ surlatablo.py [-ncdCyvhtBz] [-o <option-name>=<val>] [-s [-]<sort-on-metakey>]
+               [-i <rec_id>] [-k @|<keep-directory>] [-q <query-regexp>]
+               [-b [<meta-type>::]<base-path-pat>[,...]] [-f <filename-pat>]
+               [-E [<sport_type>::|<series>::]<episode-number>[,...]]
+               [-S [<sport_type>::|<series>::]<season-number>[,...]]
+               [-Q <query-format-pat>] [-O <closed-caption-offset>]
+               [[+]<transcode-type>]...
+
+Use option --help for detailed usage.
+"""
+SLT_GLOBAL = {}
+SLT_GLOBAL['PGM_VERSION'] = '2.3'
+# Sur la Tablo (on the Tablo)
+SLT_GLOBAL['PGM_NAME'] = 'surlatablo'
+# License
+SLT_GLOBAL['PGM_LICENSE'] = 'GPLv2'
+# Configuration file
+#  You can override option variables below by putting your into
+#  this file.
+SLT_GLOBAL['CONF'] = '~/surlatablo2.conf'
+
+### PROGRAM LOCATIONS
+
+# Replace with full path location of your programs
+FFMPEG = '/usr/bin/ffmpeg'
+CCEXTRACTOR = '/usr/local/bin/ccextractor'
+
+### IMPORTANT LOCAL SETTINGS
+
+SURLATABLO_ROOT = '/SurLaTablo'    # Cache db goes here
+TABLO_IPS = ['127.0.0.1']          # Should we detect?
+                                   #  Use a python list of Tablo IPs.
+LOCAL_TIMEZONE = 'US/Central'      # Your current timezone
+
+#NOZEROTV = False                   # Substitutes s<lair_date_year>e<lair_date_year_day><lair_date_hour><lair_date_minute> for when
+#                                   #  season or episode are zero (for meta_type TV)
+#                                   # Also sets episode title 
+
+# Not sure if I'll ever handle True here, so leave as False for now.
+#  The reason?  Windows users do not deal with "real" filenames well.
+PRESERVE_FILENAMES = False         # Preserve Unicode filenames by renaming files
+                                   #  after all actions are done.  This makes the filenames
+                                   #  look good, and allows us to "print" the safe/ascii
+                                   #  names to the console before that while program operates
+                                   #  on data.  There are just too many variables to make
+                                   #  this work well in Windows, but I might do this at
+                                   #  some point.
+
+import os
+if (os.name == 'nt'):    
+    # Warning, path to font file in Windows cannot contain drive-letter:
+    GIF_FONTFILE = '/Windows/Fonts/arial.ttf' # Populates dynamic meta var ${gif_fontfile}
+    termenc = 'cp437'
+else:
+    GIF_FONTFILE = '/usr/share/fonts/truetype/DejaVuSans.ttf' # Populates dynamic meta var ${gif_fontfile}
+    termenc = 'utf-8'
+
+### CONF FILE PROCESSING
+# You can override and/or augment anything above this line using
+#  the contents of the config file.
+#
+# Open and read the conf data into a variable so we can exec it
+# again later.  So that substitutions can be done to config items
+# after this line.
+#
+try:
+    if (os.path.isfile(os.path.expanduser(SLT_GLOBAL['CONF']))):
+        with open(os.path.expanduser(SLT_GLOBAL['CONF']),'r') as f:
+            confdata = f.read()
+        exec(confdata)
+except:
+    pass
+
+### DIRECTORY AND FILE CREATION PATTERNS
+
+# Patterns for output handling by meta_type (e.g. TV, Sports, Movie, Manual)
+#  Patterns can contain meta information made by this program using
+#  ${meta-name}. Just like TabloTV, this programs metadata is non-uniform
+#  by media type (aka meta_type)
+#
+BASE_DIRS={'Default':'./${meta_type}',
+    'Sports':'./${meta_type}/${sport_type}/Season ${season_number}',
+    'TV':'./${meta_type}/${Eseries}/Season ${season_number}',
+    'Movie':'./${meta_type}/${Etitle} (${release_year})'
+}
+# Everything but the final extension of the final transcoded file. See TRANSCODER_OPTS last element.
+FILENAME_PATS={'Default':'${Etitle}',
+    'TV':'${Eseries} - s${plex_season_number}e${plex_episode_number} - ${Etitle}',
+    'Sports':'${sport_type} - s${plex_season_number}e${plex_episode_number} - ${Etitle}',
+    'Movie':'${Etitle} (${release_year})'
+}
+
+
+
+
+
+###############################################################################
+# BE CAREFUL ABOUT MODS TO OPTIONS BELOW
+###############################################################################
+
+# CHANGELOG
+# 
+# 2.3 - Quick fix for new 2.2.25/26 commercial cutting feature of Tablo. Thanks @FlyingDiver
+#
+# 2.2 - Fix for redundant entries in cache dbs when you have more than one Tablo.  Remove
+#   your SURLATABLO_ROOT cache directories and reprocess (run surlatablo.py) your Tablos.
+#
+# 2.1 - Fix for filename print output when redirected to convert to utf-8.  This is just for
+#   hosts (not Windows) that handle utf-8 filenames.
+#
+# 2.0 - Fixes. Added -U which means skip query matches of things unwatched.  Added -P which means
+#   skip query matches of things protected.  Those are VERY expensive options as a check to the Tablo
+#   is done for each matched item to see if they should be skipped or not.  These options might be
+#   valuable combined with the Delete or DeleteX "transcoders".  Because these are expensive,
+#   SurLaTablo defaults to deleting things even if protected.  Therefore I recommend using at least
+#   the -P option when doing deletes.  There are metadata changes, remove your files under
+#   SURLATABLO_ROOT and do full reindex.
+#
+# 2.0b4 - Fixes. Addition of options['titles_from_description'] which defaults to false.  If set,
+#   if there is a resource with no title, it will see if it can construct something from the description
+#   up to the first comma or semi-colon.  Otherwise and by default title will set to lair_date YYYY-mm-dd.
+#   Sports with no season will no longer have empty parens appended to the title.  As with TV, worst
+#   case for Sports will append lair_date YYYY-mm-dd.
+#
+# 2.0b3 - Fixes. Addition of Mp4zap1 and Mp4zap2 "transcoders".  Addition of a remove_format similar
+#   to query_format and a formatted_remove boolean to trigger it.  This gives you the option of
+#   creating a better format for the db cache REMOVES than the normal full JSON dump.
+#
+# 2.0b2 - Bug fixes mostly.  However there are two new transcoders, Delete (which prompts)
+#   and DeleteX.  If you haven't guessed, this will delete the matched items.  While you could tack
+#   it onto your TRANSCODER_DEFAULT array or add in addition to whatever you have define by +DeleteX
+#   on the command line, my preference would be to pull and then delete (just saying).
+#  
+#   -i <rec_id> now works ok... Tablo separated the data, so it tries to do "right" things
+#   when searching for the record.  You can search using a full path or a number.  I try to dump
+#   all that is interesting out of the Tablo, however, it's not just one big item anymore, it can 
+#   be 2 or 3 items now per "rec_id".
+#
+# 2.0b1 - First release for new 2.2.12 firmware (Tablo's official "rest" api).  Note: Tablo no longer has
+#   key meta data like genre and original_air_date like before.  The SURLATABLO_CONF file now defaults
+#   to surlatablo2.conf in your home directory.  The SurLaTablo meta data and recording cache files
+#   have been renamed (they begin with slt2) because both formats are different... thus on first
+#   run, it will re-index all of your recordings into the local cache... could take many many minutes.
+#
+# 2 - Note: Created info for channels (channel_map) no longer needed or used.  Created info for genres
+#   (genre_map) no longer handled.
+#
+# 1.9p1 - patch for character handling
+# 1.9 - (genres sorta leave)
+#   1. Genres are now handled via a genre_map that you can include in your surlatablo.conf file.
+#   To generate your own you will need sqlite3 and then you should locate your Chrome browser's
+#   http_my.tablotv.com_0 folder and the database under it (should be a number, mine was 4).
+#   Then you can do:
+#     sqlite3 4
+#     .output genre.txt
+#     .separator ":"
+#     select objectID,JSON from genre;
+#   Then take the output in genre.txt and wrap inside a couple of lines like so in your surlatablo.conf:
+#     ...
+#     genre_map = {
+#       <contents of your genre.txt goes here but you must make each line but the last end in a comma>
+#     }
+#   2. Similarly you can create your channel_map:
+#     sqlite3 4
+#     .output channel.txt
+#     .separator ":"
+#     select objectID,JSON from recChannel;
+#   Then take the output in channel.txt and wrap inside a couple of lines like so in your surlatablo.conf:
+#     ...
+#     channel_map = {
+#       <contents of your channel.txt goes here but you must make each line but the last end in a comma>
+#     }
+# 1.8 - (genres return... well it's a beginning)
+#   1. A genre_map is included now in SurLaTablo.  It's probably not complete, but is an attempt to make genre
+#   meta data possible again (${genres}).  You'll have to remove your SURLATABLO_ROOT files and regen
+#   (just do surlatablo.py to regen).
+#
+# 1.7 - (channels return... sort of)
+#   1. You can add back channel handling by creating your own mapping of Tablo meta_channel ids to channel_num data.
+#   You can add the mapping to your surlatablo.conf.  The meta_channel is now a piece of metadata you can query which might
+#   help you in creating the mapping like so (you'd have to watch/record shows to get the meta_channel numbers).
+#   The meta_channel is called recChannel in the original Tablo metadata:
+#   channel_map = {
+#    110247: { 'channel_num': '27.1' },
+#    173111: { 'channel_num': '13.1' },
+#    26697:  { 'channel_num': '33.1' },
+#    39153:  { 'channel_num': '5.1' },
+#    39243:  { 'channel_num': '11.1' },
+#    46752:  { 'channel_num': '4.1' },
+#    50615:  { 'channel_num': '68.1' },
+#    630311: { 'channel_num': '8.1' }
+#   }
+#   2. Escape forward slashes for when a show/series title has slashes in it (to prevent inadvertent folder creations).
+#
+# 1.6 - (quick release)
+#   1. Fix for Mp4W transcode when width is "wrong"... there may be more problems than this.
+#   2. Added options['no_utf8_names'] for when an OS might handle it but the filesytem chosen cannot.
+#
+# 1.5 - (patient in hospital release)
+#   1. Fixed some metadata problems.
+#   2. Better tags handling for mp4 metadata.
+#   3. Set some pre-defined transcoders as being --zapcommercials safe.
+#
+# 1.4 - (the sadness release)
+#   1. With removal of extended metadata by Nuvyyo, the following changes had to be made:
+#       - gamedate (and gamedate_year, gamedate_month, etc.) is simply replace by the local
+#         air date data.  Which is definitely not the same, but the best we can now do.
+#       - long_description will now simply inherit the short or regular description.
+#       - channel_* all channel metadata is gone.
+#       - genre is gone.
+#       - rating is gone.
+#       - qualifiers_ list is gone.
+#   2. I have added season and episode metadata into ffmpeg transcoded files.
+#   3. Added a --ts option which allows makes the assumption that the pulled Tablo mpeg4_ts
+#      file pull has already been done.  Useful for trying things out without have to 
+#      do the slow re-pull of the mpeg4_ts off the Tablo.
+#
+#   Note: due to metadata changes, you may want to remove your cache (surlatablo will rebuild)
+#   if you have recorded any Sports type of program especially after Dec 1.  Existing metadata for
+#   shows prior to Nuvyyo's changes to the metadata are currently not affected and the elements
+#   mentioned above will still work for those shows.
+#
+#   I still believe there is some hope to get back some of the lost functionality.
+#      
+# 1.3 - 
+#   1. When using -C always save the .srt file into the transcode target directory.
+#      Copy both into your plex area and then you can use the SRT from Roku (for example).
+#   2. PGM_VERSION was never change in 1.2, fixed to 1.3 in this version.
+#
+# 1.2 -
+#   1. Added ability to set a default queryformat using options['queryformat'].
+#   2. Added new dynamic queryformat variables, ${Wdescription}, ${Wlong_description} and
+#      ${friendly_date}.
+#   3. Added options['wrapwidth'], options['wrapindent'] and options['wrapsubindent'] to control
+#      how ${Wdescription} or ${Wlong_description} will be wrapped on output.
+#
+# 1.1 -
+#   1. Added another algorithm for use with -z.  Switch by setting options['zap_algorithm'] = 2
+#      in surlatablo.conf or use -o zap_algorithm=2 along with -z option.
+#   2. Added warnings about use of truncate with -z.  Warning about not using a zap compatible
+#      transcoder like Mp4z when using -z.
+#   3. Added options['truncate_ts'].  This is better for -z than using truncate.  A
+#      value of options['truncate_ts'] = 75 should clip off about 5 min. off the original
+#      ts from the Tablo, and commercial processing will come after that.
+#
+# 1.0 - 
+#   1. Fixed a bug in article detection for sort_title (thanks @alexbunk).
+#   2. Added options['truncate'] to allow clipping off some seconds from end
+#      of show.  Many people might set options['truncate'] = 300 in their
+#      surlatablo.conf file (truncate last 5 minutes).
+#   3. Add fix to commercial zap code that might prevent an infinite loop.
+#   4. Added timers so you can see how long steps take.
+#   5. Added Mp4z trancode option that is relatively fast, but a full
+#      transcode.  Useful when using -z to zap commercials (gets rid of
+#      the audio/video out of sync problem for zapped shows at a bit of a
+#      performance and quality hit).
+#
+# 0.9 -
+#   1. Better file handling for Windows.  That is, strip out everything that
+#      is not ASCII (sigh).  It is weird because NTFS handles unicode (roughly)
+#      filenames, but Windows shells do not handle it.  Python 2.7 also has
+#      some issues, just don't look at Python 3 to fix everything (it doesn't).
+#   2. Made some tweaks to commercial handling.  Added backtoback to join
+#      close segments together.
+#
+# 0.8 -
+#   1. Moved 2nd exec of SLT_GLOBAL['CONF'] (surlatablo.conf) to happening
+#      after the module imports.  In particular this allows you to set
+#      tempfile.tempdir = 'temp-file-dir'.
+#   2. Added commercial removal (-z).  I have not found a good way of 
+#      creating subtitles that work with such a file though.  So for now,
+#      you cannot specify both -C -z, if you do the -C will get tossed.
+#      You can notice the "stitch" points in the resulting file.  The
+#      analysis and creation of the commercial-less file means twice the
+#      ammount of .ts (defaults to temp storage) is required.
+#   3. You can now override elements of the "options" array.  This is
+#      mainly so you can tweak the commercial detection and extraction
+#      variables.  Set with -o name=value:
+#          blackdetect_d  (.03) - This is length of black frames in seconds
+#              to be considered a valid black frame.  I can see cases
+#              where raising this to .04 is ok.  I wouldn't make any
+#              other adjustment to this one.
+#          blackdetect_pic_th (1) - Ratio (coverage) to be considered as "black".  I'd
+#              leave this alone.
+#          blackdetect_pix_th (.1) - How black is black?  Again, I would leave this
+#              alone.
+#          commercials_max_time (500) - If the routines seems to be stuck in
+#              commercials for more than this length in seconds, start adjusting
+#              the "interval" by "interval_reduce" for "reduce_attempts" times in
+#              order to try to find some show content.  Probably best to keep in
+#              the range of 300 - 600.
+#          interval (230) - Length in seconds from end of last black segment to next
+#              black segment.  If you make this too small, you'll end up with
+#              commercials.  If you make this too high, you may miss some show.
+#              I'd keep this in the range of 200-300.
+#          reduce_attempts (3) - Number of times to attempt interval reduce in
+#              cases where we believe we may have missed some show.
+#          interval_reduce (30) - This is subtracted from the interval when
+#              it is believed that we are missing some show elements.  Done
+#              for "reduce_attempts" number of times before giving up.
+#          postscript (false) - Some TV shows in particular may have a very
+#              short postscript (at the end) situated in the midst of a sea of commercials.
+#              Since this almost impossible to detect, setting this option will
+#              grab the content from the last known black interval after the last
+#              known show segment to the end of the file.  Yes, you will get commercials,
+#              but you will also get the postscript segment.  Set this to a non
+#              empty string value to make it true.
+#      Other values could be added to the options array using -o.  I'd be very
+#      careful about adjusting other values.
+#          
+# 0.7 -
+#   1. -E, -S, now gerneralized and long formats renamed to --episode and --season.
+#      These can now be used to force season and episode data in a made up way
+#      for handling TV by series name values where no season/episode meta data
+#      was provided.
+#       e.g.   -S Gidget::1  -E Gidget::1
+#      When queried, converting, this arranges the series matches for Gidget
+#      by original air date and numbers season as "1" and episodes starting
+#      at "1" and auto-incrementing.
+#      The behavior for making up meta data for Sports shows has not changed.
+#   2. Removed some extraneous debug prints.
+#   3. Added the -B option to allow converting/processing of shows that are
+#      stuck on the Tablo in a non-"finished" state.  Not sure what causes this.
+#      Some say it happens when things go "bad", but I think I've seen this
+#      just randomly.  Anyhow, if you have stuck shows that always say they
+#      are *RECORDING/BUSY*, this option will allow you to ignore that
+#      (use with caution... don't ignore shows that you know are really
+#      recording, and if you do, avoid converting them until they are
+#      truly done recording).
+#   4. Fixed bug, sort_title was not working.  You will want to remove your
+#      SURLATABLO_ROOT/<tablo_ip> cache files and regenerate.
+#   5. Added -s (--sortkeys) option to allow you to specify what metakeys to
+#      to sort by (default is sort by lair_date descending).  Warning: this
+#      is also a filter.  Records that do not have all the metakeys specified
+#      will not be output.  For example if you have -q . (everything) and -s
+#      series, only TV shows will be shown since they are the only records
+#      containing series.
+#   6. Query format (-Q) may now specify urls.  In which case they are templated
+#      (that is, metakey substitutions are done).
+#      There are two formats.  url('location1','location2',...) and
+#      URL('location1','location2',...).  The second variant, URL, forces
+#      metakey substitution on each url prior to inclusion.  If the resource
+#      scheme begins with '1' (e.g. 1http://...) then include that resource
+#      only once for all matches.  Resource schemes allowed are (http: and file:,
+#      some others might work...)
+#
+# 0.6 -
+#   1. Fix surlatablo.conf bug, put back trap around it, read into a variable
+#      so that it can be exec'd twice, before major options and after.
+#   2. Changed meaning of -O (offset) to be offset for whatever matches, just
+#      and offset value.  The default setting is to apply the options['liveoffset']
+#      value to Live shows (from new meta type qualifiers_).
+#   3. Successfully tested on OSX.  Not really a "bug", just a statement.
+#
+# 0.5 -
+#   Quick fix to correct Eseries bug.
+#
+# 0.4 - 
+#   1. You may now have a SLT_GLOBAL['CONF'] file (defaults to homedir
+#      surlatablo.conf) which can be used to override the configuration variables.
+#      This way you won't have to keep editing the source file for local site
+#      changes.
+#   2. TV shows with season 0 and episode 0 (e.g. News) will now default
+#      to s<lair_date_month>e<lair_date_day> and Unknown titles will default
+#      to Episode - <lair_date_year>-<lair_date_month>-<lair_date_day>.  You can
+#      disable this by setting NOZERTV = False in your .conf file (see #1).
+#      original_air_date cannot be used for this because quite often it is wrong.
+#   3. Pathnames for output files are now santized for Windows.
+#   4. surlatablo.py now takes arugments beyond switches which are to specify
+#      the transcodes to do on the downloaded data.  Default if not present is
+#      just Mp4.  You can override the default by setting in you .conf file:
+#       TRANSCODER_DEFAULT = [ 'Mp4', 'Gif', etc. ]
+#      You can specify on the command like:
+#       surlatablo.py .... Mp4 Gif Json
+#      or
+#       surlatablo.py .... +Gif +Json
+#      The '+' means in addition to the TRANSCODER_DEFAULT values.
+#      Use '-t' option to see brief description of available transcoders.
+#   5. Options --wcrop (-w) and --cropformat (-W) have been removed.  Create and
+#      use a new TRANSCODER_OPTS definition for this.
+#   6. You can now use --keepdir @ to say you want to save the .ts and .srt file
+#      in the output directory with the other files.
+#   7. New predefined TRANSCODER_OPTS have been added, created. (see -t option)
+#        a. Mp4 - (the norm) to create a passthrough .mp4
+#        b. Gif - create short duration animated gif
+#        c. Flash - create an .flv
+#        d. HardSubs - (assumes use of -C) to embed subitles directly in .mp4
+#        e. Shrink - create a more compressed .mp4
+#        f. Json - create .json file containing SurLaTablo meta information for program
+#        g. Null - used mainly to say "no transcode", for times when you want to use
+#            --keepdir @ to output and save just the .ts and (optionally) .srt
+#        h. ... (more)
+#   8. Replace sanitizeFilename with sltSanitize for dynamic meta type strings
+#      like Etitle, Eseries, essentially things that could be used in path and filenames.
+#      Special dynamic variable Efriendly_title2 is a two line escaped string for
+#      internal ffmpeg option use (see Gif).
+#   9. Bug fixes.... etc...
+#
+#Sat Jan 17 14:24:17 CST 2015
+# 0.3 - New metatype, sort_title, which is the title minus leading
+#   a/an/the article.  Added a sanitizeFilename function, mainly for
+#   Windows.
+#
+#Thu Jan 15 00:00:26 CST 2015
+# 0.2 - Defined some timezone stuff for when there is no pytz.  Doesn't handle
+#   everything.  Handle escapes like \n, \t in -Q.  Check for ability to
+#   create SURLATABLO_ROOT and exit with a message instead of fail with stack
+#   trace.  New meta-type, friendly_title, added to make it easier to use
+#   friendly_title~='Series - s01' for easy season selection.
+
+
+### COMMAND OPTIONS
+
+### TRANSCODER options
+#  Allowed functions that can be called as transcoder.
+TRANSCODER_FUNCS = [ 'shutil.copyfile', 'dumpJson', 'doNothing', 'deleteResource' ]
+# Default transcode(s) to provide if none provided
+TRANSCODER_DEFAULT = [ 'Mp4' ]
+# The allowed transcoders
+#  All data options here need to be strings.
+TRANSCODER_OPTS = { 
+                'Mp4z': {
+                    'help': [ 'Ultrafast Mp4 re-transcode often used with -z.' ],
+                    'command': [ FFMPEG ],
+                    'threads': [ '-threads', '0' ],
+                    'inputfile': [ '-i', '${ts_filename}' ],
+                    'subtitlefile': [ '-f', 'srt', '-i', '${srt_filename}' ],
+                    'options': [ '-preset', 'ultrafast' ],
+                    'subtitleoptions': [ '-c:s', 'mov_text', '-metadata:s:s:0', 'language=${lang3}' ],
+                    'audiooptions': [ '-metadata:s:a:0', 'language=${lang3}' ],
+                    'metadata': [],
+                    'zap': [],
+                    'ext': [ '-z.mp4' ]
+                },
+                'Mp4zap1': {
+                    'help': [ 'Ultrafast Mp4 re-transcode that force -z 1.' ],
+                    'command': [ FFMPEG ],
+                    'threads': [ '-threads', 'auto' ],
+                    'inputfile': [ '-i', '${ts_filename}' ],
+                    'subtitlefile': [ '-f', 'srt', '-i', '${srt_filename}' ],
+                    'options': [ '-preset', 'ultrafast' ],
+                    'subtitleoptions': [ '-c:s', 'mov_text', '-metadata:s:s:0', 'language=${lang3}' ],
+                    'audiooptions': [ '-metadata:s:a:0', 'language=${lang3}' ],
+                    'metadata': [],
+                    'zap': [ '1' ],
+                    'ext': [ '-z.mp4' ]
+                },
+                'Mp4Wzap1': {
+                    'help': [ 'Crop a 4:3 480i channel presentation of a 16:9 widescreen movie that force -z 1.' ],
+                    'command': [ FFMPEG ],
+                    'threads': [ '-threads', '0' ],
+                    'inputfile': [ '-i', '${ts_filename}' ],
+                    'subtitlefile': [ '-f', 'srt', '-i', '${srt_filename}' ],
+                    'options': [ '-bsf:a', 'aac_adtstoasc', '-vf', 'crop=in_w:360:0:60', '-c:a', 'copy' ],
+                    'subtitleoptions': [ '-c:s', 'mov_text', '-metadata:s:s:0', 'language=${lang3}' ],
+                    'audiooptions': [ '-metadata:s:a:0', 'language=${lang3}' ],
+                    'metadata': [],
+                    'zap': [ '1' ],
+                    'ext': [ '-wz.mp4' ]
+                },
+                'Mp4zap2': {
+                    'help': [ 'Ultrafast Mp4 re-transcode that force -z 1.' ],
+                    'command': [ FFMPEG ],
+                    'threads': [ '-threads', '0' ],
+                    'inputfile': [ '-i', '${ts_filename}' ],
+                    'subtitlefile': [ '-f', 'srt', '-i', '${srt_filename}' ],
+                    'options': [ '-preset', 'ultrafast' ],
+                    'subtitleoptions': [ '-c:s', 'mov_text', '-metadata:s:s:0', 'language=${lang3}' ],
+                    'audiooptions': [ '-metadata:s:a:0', 'language=${lang3}' ],
+                    'metadata': [],
+                    'zap': [ '2' ],
+                    'ext': [ '-z.mp4' ]
+                },
+                'Mp4Wzap2': {
+                    'help': [ 'Crop a 4:3 480i channel presentation of a 16:9 widescreen movie that force -z 2.' ],
+                    'command': [ FFMPEG ],
+                    'threads': [ '-threads', '0' ],
+                    'inputfile': [ '-i', '${ts_filename}' ],
+                    'subtitlefile': [ '-f', 'srt', '-i', '${srt_filename}' ],
+                    'options': [ '-bsf:a', 'aac_adtstoasc', '-vf', 'crop=in_w:360:0:60', '-c:a', 'copy' ],
+                    'subtitleoptions': [ '-c:s', 'mov_text', '-metadata:s:s:0', 'language=${lang3}' ],
+                    'audiooptions': [ '-metadata:s:a:0', 'language=${lang3}' ],
+                    'metadata': [],
+                    'zap': [ '2' ],
+                    'ext': [ '-wz.mp4' ]
+                },
+                'Mp4': {
+                    'help': [ 'Standard pass through conversion of video and audio from Tablo .ts to .mp4.' ],
+                    'command': [ FFMPEG ],
+                    'threads': [ '-threads', '0' ],
+                    'inputfile': [ '-i', '${ts_filename}' ],
+                    'subtitlefile': [ '-f', 'srt', '-i', '${srt_filename}' ],
+                    'options': [ '-bsf:a', 'aac_adtstoasc', '-c:v', 'copy', '-c:a', 'copy' ],
+                    'subtitleoptions': [ '-c:s', 'mov_text', '-metadata:s:s:0', 'language=${lang3}' ],
+                    'audiooptions': [ '-metadata:s:a:0', 'language=${lang3}' ],
+                    'metadata': [],
+                    'ext': [ '.mp4' ]
+                },
+                'Mp4W': {
+                    'help': [ 'Crop a 4:3 480i channel presentation of a 16:9 widescreen movie.' ],
+                    'command': [ FFMPEG ],
+                    'threads': [ '-threads', '0' ],
+                    'inputfile': [ '-i', '${ts_filename}' ],
+                    'subtitlefile': [ '-f', 'srt', '-i', '${srt_filename}' ],
+                    'options': [ '-bsf:a', 'aac_adtstoasc', '-vf', 'crop=in_w:360:0:60', '-c:a', 'copy' ],
+                    'subtitleoptions': [ '-c:s', 'mov_text', '-metadata:s:s:0', 'language=${lang3}' ],
+                    'audiooptions': [ '-metadata:s:a:0', 'language=${lang3}' ],
+                    'metadata': [],
+                    'zap': [],
+                    'ext': [ '-w.mp4' ]
+                },
+                'Gif': {
+                    'help': [ 'Create an short animated Gif' ],
+                    'command': [ FFMPEG ],
+                    'threads': [ '-threads', '0' ],
+                    'inputfile': [ '-ss', '${gifstart}', '-i', '${ts_filename}',
+                        '-t', '${gifduration}' ],
+                    'options': [ '-loop', '0', '-r', '${gifrate}', '-s', '${gifsize}', '-vf', 'drawtext=fontfile=${gif_fontfile}:text=\'${Efriendly_title2}\':fontcolor=white@1.0:fontsize=30:x=10:y=40' ],
+                    'ext': [ '.gif' ]
+                },
+                'Flash': {
+                    'help': [ 'Create a flash .flv file' ],
+                    'command': [ FFMPEG ],
+                    'threads': [ '-threads', '0' ],
+                    'inputfile': [ '-i', '${ts_filename}' ],
+                    'options': [ '-ab', '56', '-ar', '44100', '-r', '25', '-qmin', '3', '-qmax', '6', '-s', '320x240' ],
+                    'zap': [],
+                    'ext': [ '.flv' ]
+                },
+                'HardSubs': {
+                    'help': [ 'For use with -C, burn the subtitles directly into the video of the .mp4' ],
+                    'command': [ FFMPEG ],
+                    'threads': [ '-threads', '0' ],
+                    'inputfile': [ '-i', '${ts_filename}' ],
+                    'options': [],
+                    'subtitleoptions': [ '-vf', 'subtitles=\'${srt_filename}\'' ],
+                    'audiooptions': [ '-metadata:s:a:0', 'language=${lang3}' ],
+                    'ext': [ '-hs.mp4' ]
+                },
+                'Shrink': {
+                    'help': [ 'Create a smaller .mp4 file.' ],
+                    'command': [ FFMPEG ],
+                    'threads': [ '-threads', '0' ],
+                    'inputfile': [ '-i', '${ts_filename}' ],
+                    'subtitlefile': [ '-f', 'srt', '-i', '${srt_filename}' ],
+                    'options': [ '-crf', '25' ],
+                    'subtitleoptions': [ '-c:s', 'mov_text', '-metadata:s:s:0', 'language=${lang3}' ],
+                    'audiooptions': [ '-metadata:s:a:0', 'language=${lang3}' ],
+                    'metadata': [],
+                    'zap': [],
+                    'ext': [ '-sm.mp4' ]
+                },
+                # This is here more or less as an example, normally you would do this with -k @ and Null
+                #  An example of using a python libray module function instead of an executable.
+                'Ts': {
+                    'help': [ 'Testing, do not use. Use --keepdir @ instead.' ],
+                    'command': [ 'shutil.copyfile' ],
+                    'inputfile': [ '${ts_filename}' ],
+                    'ext': [ '.ts' ]
+                },
+                # This is so that if we transcode, and then go back an delete off of the Tablo,
+                #  we can have a way to preserve the meta data for the program.
+                #  This is an example of calling a global procedure defined here.
+                'Json': {
+                    'help': [ 'Save json meta data into .json file.' ],
+                    'command': [ 'dumpJson' ],
+                    'inputfile': [ '"${rec_id}": ${json}' ],
+                    'ext': [ '.json' ],
+                    'skip_ts': [ 'True' ]
+                },
+                # Delete with confirmation prompt
+                'Delete': {
+                    'help': [ 'Delete from Tablo prompting interactively to confirm.' ],
+                    'command': [ 'deleteResource' ],
+                    'options' : [ '${tablo_ip}', '${path}', '${friendly_title}', 'N' ],
+                    'ext': [ '.always' ],
+                    'skip_ts': [ 'True' ]
+                },
+                # Delete without confirmation
+                'DeleteX': {
+                    'help': [ 'Delete from Tablo.' ],
+                    'command': [ 'deleteResource' ],
+                    'options' : [ '${tablo_ip}', '${path}', '${friendly_title}', 'Y' ],
+                    'ext': [ '.always' ],
+                    'skip_ts': [ 'True' ]
+                },
+                'Null': {
+                    'help': [ 'To specify no transcodes.  Useful when combined with --keepdir @.' ],
+                    'command': [ 'doNothing' ],
+                    'ext': [ '.always' ]
+                },
+                # Slow
+                'Glow': {
+                    'help': [ 'Apply the Frei04 Glow affect to video.' ],
+                    'command': [ FFMPEG ],
+                    'threads': [ '-threads', '0' ],
+                    'inputfile': [ '-i', '${ts_filename}' ],
+                    'subtitlefile': [ '-f', 'srt', '-i', '${srt_filename}' ],
+                    'options': [ '-vf', 'frei0r=glow:0.5' ],
+                    'subtitleoptions': [ '-c:s', 'mov_text', '-metadata:s:s:0', 'language=${lang3}' ],
+                    'audiooptions': [ '-metadata:s:a:0', 'language=${lang3}' ],
+                    'metadata': [],
+                    'zap': [],
+                    'ext': [ '-glow.mp4' ]
+                },
+                # Slow
+                'h265': {
+                    'help': [ 'Product an HEVC h265 .mp4 file.' ],
+                    'command': [ FFMPEG ],
+                    'threads': [ '-threads', '0' ],
+                    'inputfile': [ '-i', '${ts_filename}' ],
+                    'subtitlefile': [ '-f', 'srt', '-i', '${srt_filename}' ],
+                    'options': [ '-bsf:a', 'aac_adtstoasc', '-c:v', 'libx265', '-preset', 'medium', '-x265-params', 'crf=28', '-c:a', 'copy'  ],
+                    'subtitleoptions': [ '-c:s', 'mov_text', '-metadata:s:s:0', 'language=${lang3}' ],
+                    'audiooptions': [ '-metadata:s:a:0', 'language=${lang3}' ],
+                    'metadata': [],
+                    'zap': [],
+                    'ext': [ '-h265.mp4' ]
+                }
+}              
+
+### CCEXTRACTOR options
+CCEXTRACTOR_OPTS = { 'Default': {
+                         'command': [ CCEXTRACTOR ],
+                         'inputfile': [ '${ts_filename}' ],
+                         'options': [ '--gui_mode_reports', '-nogt' ],
+                         'outputfile': [ '-o', '${srt_filename}' ] }
+}
+              
+### OTHER MODIFIERS
+
+# Tablo url templates
+TABLO_REC_IDS='http://${tablo_ip}:8885/recordings/airings'
+TABLO_REC_INFO='http://${tablo_ip}:8885{}'
+TABLO_SEGS='http://${tablo_ip}{}'
+
+### OPTION DEFAULTS
+options = {
+    'backtoback' : '20',
+    'blackdetect_d' : '.03',
+    'blackdetect_pic_th' : '1',
+    'blackdetect_pix_th' : '0.10',
+    'busyignore' : False,
+    'ccaption' : False,
+    'ccaptionopts' : CCEXTRACTOR_OPTS['Default'],
+    'ccoffset': '',
+    'commercials_max_time' : '350',
+    'existing_ts' : False,
+    'formatted_remove' : False,
+    'friendly_date_format' : '%A, %B %d, %Y at %I:%M %p',
+    'gifstart' : '00:01:45',
+    'gifduration' : '10',
+    'gifrate' : '10',
+    'gifsize' : '320x200',
+    'use_existing_tsfile' : False,
+    'idebug' : '',
+    'ignorecase' : 0,
+    'interval': 300,
+    'interval_reduce': '40',
+    'keepsrt': 'Yes',
+    'keepdir': '',
+    'liveoffset': '4',
+    'maxshow' : '400',
+    'noclobber' : True,
+    'nocommercials' : '', 
+    'noprotected' : False,
+    'nounwatched' : False,
+    'no_utf8_names' : '',
+    'no_zero_tv' : True,
+    'postscript' : '',
+    'queryformat' : '',
+    'reduce_attempts' : '3',
+    'removeformat' : 'Removed: (${rec_id}) ${friendly_title}',
+    'srtsubtitle' : '',
+    'srtmovtext' : '',
+    'titles_from_description' : '',
+    'titles_from_description_max' : 50,
+    'truncate' : 0,
+    'truncate_ts' : 0,
+    'ts_parallel' : 1,
+    'update' : True,
+    'wrapindent' : '',
+    'wrapsubindent' : '',
+    'wrapwidth' : 80,
+    'zap_algorithm' : '1'
+}
+
+def firstThings():
+    helpstring = """
+FIRST THINGS
+------------
+Edit this program and change the values for (near top of file,
+or, better, use surlatablo2.conf in your home directory folder).:
+
+# Location of your ffmpeg program (optional if you won't convert or transcode)
+# Linux or OSX (example):
+FFMPEG = '/usr/bin/ffmpeg' 
+# OR if Windows (example):
+FFMPEG = 'C:/Program Files/ffmpeg/bin/ffmpeg.exe'
+
+# Location of your ccextractor program (optional)
+# Linux or OSX (example):
+CCEXTRACTOR = '/usr/local/bin/ccextractor'
+# OR if Windows (example):
+CCEXTRACTOR = 'c:/Program Files (x86)/CCExtractor/ccextractorwin.exe'
+    
+
+# Location directory where meta db caches go
+SURLATABLO_ROOT = '/SurLaTablo'
+
+# Local timezone.
+LOCAL_TIMEZONE = 'US/Central'
+
+# List of your Tablo IPs, this program does not auto detect today.
+# Once you set this, the FIRST THINGS will no longer print and program
+#  assumes everything is setup.
+TABLO_IPS = ['192.168.1.73']
+
+"""
+    print(Template(helpstring).safe_substitute(SLT_GLOBAL))
+
+def detailedHelp():
+    helpstring = """
+${PGM_NAME} ${PGM_VERSION} ${PGM_LICENSE}
+
+
+UPDATE AND SEARCH
+-----------------
+Update cache db (need metadata db to do anything)
+ (typically you do this first, first run will take a bit)
+
+    surlatablo.py
+
+Update and search db
+
+    surlatablo.py --query Green\ Acres
+
+Do not update cache, just search db
+ (note matches Green Acres anywhere in the metadata)
+
+    surlatablo.py --noupdate --query Green\ Acres
+
+Search db by metadata
+
+    # Find all for TV series called Green Acres
+    surlatablo.py --noupdate --query series~=Green\ Acres
+
+    # Find all Sports records
+    surlatablo.py --noupdate --query meta_type~=Sports
+
+Use a query format string to change output
+
+    # Find all TV shows and user a query format for output
+    # (note --queryformat will not do anything combined with --convert)
+
+    surlatablo.py --noupdate --query meta_type~=TV --queryformat '${lair_date}\t${rec_id}\t${series}\t${title}'
+
+Display full TabloTV metadata for a specific recording id.
+
+    # (note --rec_id can be used with --convert)
+    surlatablo.py --noupdate --rec_id 28191
+
+Query and sort
+
+    # Find all TV shows and sort by series and then by local air date.
+
+    surlatablo.py --noupdate --query meta_type~=TV --sortkeys series,lair_date
+
+Note:  You can easily force a full refresh of local cached data by removing
+ the files at SULATABLO_ROOT/Tablo_IP/*
+
+
+
+CONVERT OR PREVIEW CONVERT (ADD SUBTITLES/CC, MP4 METADATA)
+-----------------------------------------------------------------
+
+Locate a particular recording, convert with close captioning done as a subtitle. Sample interative output also shown.
+
+    surlatablo.py --noupdate --query Fuji\ falls --convert --ccaption --clobber
+    <screen output follows>
+    Working on:                             [./TV/McHale's Navy/Season 3/McHale's Navy - s03e15 - Fuji's Big Romance.mp4]
+     Retrieving Tablo Data (28191):         [####################] 100%
+     Extracting CC as Subtitle:             [####################] 100%
+     Transcoding:                           [####################] 100%
+
+Locate all sports and use default season of game_year and use supplied episode
+ start number by sport_type. Defaulting starting with episode number 1 for
+ unspecified types.
+
+    surlatablo.py --noupdate --query meta_type~=Sports -E "NFL Football::3,NBA Basketball::5,1" --convert
+
+Use the --debug (probably misnamed) to show what surlatablo.py would do, but
+ don't do it (option to be combined with --convert)
+
+    surlatablo.py --noupdate --query Fuji\ falls --convert --ccaption --clobber --debug
+    [ ./TV/McHale's Navy/Season 3/McHale's Navy - s03e15 - Fuji's Big Romance.mp4 ]
+    [ http://192.168.1.73:18080/pvr/28191/segs -> /tmp/TabloE1_zkh.ts]
+    ['/usr/local/bin/ccextractor', '/tmp/TabloE1_zkh.ts', '--gui_mode_reports', '-o', '/tmp/TabloZdkhvf.srt']
+    ['/usr/bin/ffmpeg', '-i', '/tmp/TabloE1_zkh.ts', '-f', 'srt', '-i', '/tmp/TabloZdkhvf.srt', '-bsf:a', 'aac_adtstoasc', '-c:v', 'copy', '-c:a', 'copy', '-c:s', 'mov_text', '-metadata:s:s:0', 'language=eng', '-metadata:s:a:0', 'language=eng', '-metadata', "title=Fuji's Big Romance", '-metadata', 'date=1964-12-25', '-metadata', 'network=Antenna', '-metadata', "album=McHale's Navy", '-metadata', "show=McHale's Navy", '-metadata', 'genre=Sitcom', '-metadata', 'episode_id=s03e15', '-metadata', "synopsis=Fuji falls in love with a native chief's daughter.", '-metadata', "description=Fuji falls in love with a native chief's daughter.", '-metadata', "comment=Fuji falls in love with a native chief's daughter.", '-y', "./TV/McHale's Navy/Season 3/McHale's Navy - s03e15 - Fuji's Big Romance.mp4"]
+
+Note: Better, full output of an actual --convert can be captured simply be
+ redirecting output to a file instead of to screen/terminal.  Useful for when
+ things aren't working (bugs in the software).
+
+Note: Program uses Python tempfile functions.  To adjust your temporary
+ directory place:
+    tempfile.tempdir = '/path-to/my-tempdir'
+ For other notes on how Python finds your temporary file location, see Python
+ documentation.
+
+MORE EXAMPLES
+-------------
+
+Find all Mister Ed episodes and convert them using the Default transoding plus a
+short animated Gif preview:
+
+    surlatablo.py -n -q series~='Mister Ed' -C -c +Gif
+
+
+BASIC CONVERT OPTIONS (for use with --convert)
+---------------------
+
+--ccaption         = Pull closed captioning off of Tablo recording and convert
+                      it to subtitle format for inclusion with final transcode.
+--clobber          = By default, this program will not convert if the target
+                      end result filename already exists.
+--keepdir <dir>    = Instead of deleting intermediate temporary files (e.g. the
+                      Tablo .ts file, the subtitle .srt file), keep them here.    
+                      If keepdir is @, files will go to the destination directory
+                      for the final transcoded files and be named like --filename.
+--zapcommercials   = Attempt to remove commercials from the Tablo data.
+--options <name>=<value> = Override elements of the options array.  Mainly for
+                      tweaking commercial detection.  See the CHANGELOG for now.
+
+
+
+ADVANCED CONVERT OPTIONS
+------------------------
+As with query formats, you may use metadata keys inside of the paths here.
+
+--episode          = Format of the form: [<sport_type>::|<series>::]<start_episode_number>
+                      Use episode_number starting with start_number and
+                      incrementing by one for every match.  Different
+                      start_numbers can be specified for the different
+                      sport_types.
+--season           = Format of the form: [<sport_type>::|<series>::]<season_number>
+                      Override using the game_date and use supplied
+                      season_number as the season for the sporting event, a
+                      different season can be specified by each sport_type.
+--basedir          = Format of the form: <meta_type>::<formatted-path-string>,..
+                      Base directory location for final converted mp4 file
+                      based on meta_type.  Predefines are (BASE_DIRS):
+                      Default    = ./${meta_type}
+                        (e.g. ./Movie, ./Manual)
+                      Sports     = ./${meta_type}/${sport_type}/Season ${season_number}
+                        (e.g. ./Sports/NFL Football/Season 2014)
+                        (remember, you can override the season_number for Sports on the
+                        command line with -S)
+                      TV         = ./${meta_type}/${Eseries}/Season ${season_number}
+--filename         = Format of the form: <meta_type>::<formatted-path-to-file-string>,... 
+                      (minus the file extension)
+                      Predefines are (FILENAME_PATS):
+                      Default    = ${Etitle}
+                      TV         = ${Eseries} - s${plex_season_number}e${plex_episode_number} - ${Etitle}
+                      Sports     = ${sport_type} - s${plex_season_number}e${plex_episode_number} - ${Etitle}
+                      Movie      = ${Etitle} (${release_year})
+
+Note: The Default applies only in cases where there is no meta_type match.  So
+ if we wanted to override the location for a TV show.  We could override with,
+  --basedir TV::. --filename TV::MyOwnFilename
+ The output then would simply be placed at ./MyOwnFilename.mp4.  If we want
+ Movies to stored inside of directory instead of flat inside of the Default
+ basedir, we could use,
+  --basedir Movie::./${meta_type}/${Etitle} (${release_year})
+
+You can alter the values of BASE_DIRS and FILENAME_PATS in this program to make
+ your own "default" settings persistent.
+
+
+                     
+COMMAND LINE SWITCH SUMMARY WITH SHORTCUTS
+------------------------------------------
+
+-h, --help             = Print this very long help.
+-t, --transcodehelp    = Summary of valid transcode arguments
+-v, --version          = Print this program version.
+-d, --debug            = Turn on "debug" output, which is really just a show
+                          without execution flag for --convert.
+-B, --busyignore       = Allows use of --convert on files that Tablo thinks are in
+                          a busy state, but are not (you must decide).
+-c, --convert          = Attempt to transcode a matching query set or --rec_id
+                          value.
+-C, --ccaption         = Extract subtitle .srt file from closed captioning and
+                          insert subtitle stream into final ouput file.
+-y, --clobber          = Overwrite final destination file.  Normally, program
+                          exits if final output file exists.
+-n, --noupdate         = Do not process new or deletions off Tablo unit, just
+                          go off existing cached data.
+-i, --rec_id <id>      = Show TabloTV full metadata for supplied id.
+-k, --keepdir <dir>    = Keep temporary files used in --convert at this
+                          directory location. Use @ to keep with transcoded files.
+-q, --query <str>      = Query the meta db, in particular format can be of the
+                          form metakey~=Value.
+-b, --basedir <str>    = Comma separted list of basedir format patterns,
+                          [<meta-type>::]path
+-f, --filename <str>   = Formatted pattern to produce final name (without
+                          extension).
+-z, --zapcommercials   = Attempt to extract just the show data (best if used with Mp4z transcoder).
+-o, --options <name>=<value> = Override elements of the options array.
+-S, --season <num>     = Format is [<sport_type>::|<series>::]season-number instead of
+                          using game_year|lair_date_month.
+-E, --set_episode <num> = Format is [<sport_type>::|<series>::]episode-number.
+-Q, --queryformat <str> = Customize output for successful queries.  Can contain meta_keys of the
+                           form: ${meta_keyname}.  You can also embed escapes like \t (tab)
+                           and \n (newline). Use option['queryformat'] to set a default format.
+-O, --ccoffset <time>  = Can be just [+-]seconds or [+-]HH:MM,  sets itsoffset
+                          on the TabloTV .ts data.  Note, by default "Live"
+                          events use a 4 second offset (which means it is taking
+                          about 4 seconds for the captioner to catch up).  To change
+                          that default see option['liveoffset'] under OPTION DEFAULTS
+-U, --nounwatched      = On a query (-q), skip matches that are unwatched.
+-P, --noprotected      = On a query (-q), skip matches that are protected.
+
+
+QUERY/BASEDIR/FILENAME FORMAT METAKEYS
+--------------------------------------
+Just like Tablo's non-uniform metadata, this program's data is also
+ non-uniform across media types (meta_type).
+
+This means the keys for Movies, TV, Sports and Manual are different.  Metakeys
+ describe metadata for each recording.  Metakeys can be used in queries,
+ queryformatting and for determing the BASEDIR and FILENAME creation when
+ converting Tablo recording to mp4 format.
+
+Dynamic meta keys can be used by internal variables like determing BASEDIR and
+FILENAME but generally are not available for queries.
+
+IMPORTANT: READ THIS
+When you see *** below, these are metadata elements that used to be available and
+are no longer available from Tablo.  I'm keeping the code to handle these intact just
+in case they can come back.  I think the losses are significant.
+
+Common Metakeys
+---------------
+rec_id            = Tablo recording identifier
+tablo_ip          = IP of Tablo for matching record
+meta_type         = Type of media value: TV, Movie, Sports, or Manual
+video_size        = Length in bytes of Tablo recording
+video_sizeh       = Human readable version of video_size (e.g. size output in
+                     MiB, GiB instead of bytes)
+video_width       = Resolution width of recording (as contrained by Tablo
+                     settings)
+video_height      = Resolution height of recording (as contrained by Tablo
+                     settings)
+video_duration    = Duration in seconds of Tablo recording
+video_durationh   = Duration in HH:MM:SS form
+video_state       = For example, "finsished"
+video_offsetstart = TBD
+video_offsetend   = TBD
+air_date          = UTC date and time of recording (YYYY-MM-DDTHH:MMZ)
+air_date_year     = UTC year of recording (YYYY)
+air_date_month    = UTC month of recording (MM)
+air_date_day      = UTC day of recording (DD)
+air_date_hour     = UTC hour of recording (HH)
+air_date_minute   = UTC minute of recording (MM)
+lair_date         = Local timezone date and time of recording
+                     (YYYY-MM-DDTHH:MM+TZOFFSET)
+                     (note: stored with the cached metadata db, this is the
+                     local timezone value at the time of the cache entry)
+lair_date_year    = Local timezone year of recording (YYYY)
+lair_date_month   = Local timezone month of recording (mm)
+lair_date_day     = Local timezone day of recording (dd)
+lair_date_hour    = Local timezone hour of recording (HH)
+lair_date_minute  = Local timezone minute of recording (MM)
+lair_date_tz      = Local timezone
+lair_date_string  = Local timezone date time string (YYYY-mm-dd HH:MM)
+lair_date_year_day = Local timezone numeric day within year (J), i.e. 001 - 366
+title             = Recording title (TV = episode title, Movie = title, 
+                     Sports = sports event, Manual = title)
+friendly_title    = For TV, ${series} - sXXeYY - ${title}, for Movie
+                     ${title} (${release_year}), otherwise same as ${title}
+channel_sign      = TV Channel name (e.g. KDAF-DT, Antenna, MeTV, MOVIES!)
+                      (not in Manual)
+channel_affliate  = Optionally suppied affiliation of channel_sign (e.g. FOX,
+                      CW, ION, MNT) (not in Manual)
+channel_num       = Traditional tuning channel number (not in Manual)
+channel_res_height= Resolution height of channel (not in Manual)
+channel_res_width = Resolution width of channel (not in Manual)
+channel_res_name  = Friendly resolution name (e.g. 720p, 1080i, 480i) (not in
+                     Manual)
+channel_resolution = hd_270, hd_1080, sd
+path              = Path part of url to start of show meta data on Tablo
+tms_id            = The Tribue Media Services lookup id
+
+
+Almost Common Metakeys
+----------------------
+***lang              = 2 char ISO 639-1 language of recording (probablistic) (not
+                     in Manual)
+description       = Recording/show long description (not in Manual)
+qualifiers_       = Now this is pretty much just cc (closed captions).
+
+Note: Channel determination is somewhat probablistic.
+
+Almost Dynamic Common Metakeys (used in transcoding options with --convert)
+---------------------------------------------------------------------------
+plex_season_number  = Zero padded 2 digit respesentation of season_number
+                       (for Sports and TV)
+plex_episode_number = Zero padded 2 digit respesentation of episode_number (for 
+i                      Sports and TV)
+Etitle              = ${title} with filesystem unsafe chars removed.
+Eseries             = ${series} with filesystem unsafe chars removed.
+Efriendly_title2    = ${friendly_title} with ffmpeg unsafe chars removed, two
+                       lines if TV series/episode
+
+Note: This is according to Plex naming requirements and in particular for use
+ with thetvdb.org agent.
+
+Sports Metakeys (meta_type = Sports)
+------------------------------------
+***game_date         = Date of sporting event (YYYY-MM-DD)
+***game_date_year    = Year of sporting event (YYYY)
+***game_date_month   = Month of sporting event (MM)
+***game_date_day     = Day of sporting event
+sport_type        = Name of sporting event (e.g. NFL Football, NBA Baskeball)
+teams_            = Semicolon delimited list of teams in sporting event    
+home_team         = The "home team" of the teams_ playing.
+season_type       = For example, "regular" season.
+season            = For example, "2016-2017" season.
+sport_path        = Path part of url describing type of sport
+
+Sports Dynamic Metakeys
+-----------------------
+These keys are not part of the metadata db, but can be assigned automatically
+ or through the command line.
+
+season_number     = Defaults to game_date_year, artificial season number for a
+                     sporting event
+                    (override on command line with -S <season number>)
+episode_number    = Defaults to zero, but for multiple search match of same
+                     sport_type it is incremeted by one. 
+                    (override on command line with -E <episode number>)
+
+TV Show Metakeys (meta_type = TV)
+---------------------------------
+***original_air_date = Date the TV show originally aired (YYYY-MM-DD)
+***original_air_date_year = Year the TV show originally aired (YYYY)
+***original_air_date_month = Month the TV show originally aired (MM)
+***original_air_date_day = Day the TV show originally aired (DD)
+cast_             = Semicolon delimited list of cast in TV show
+rating            = TV Rating code (e.g. TV-14, TVG)
+***genres_        = Semicolon delimited list of genres for TV show (e.g. Sitcom)
+series            = TV show series name (e.g. Green Acres, Arrow, Gotham)
+season_number     = TV show series season number (defaults to 0)
+episode_number    = TV show series episode number (defaults to 0)
+series_path       = Path part of url for metadata for the series of an episode on the Tablo
+season_path       = Path part of url for metadata for the season of a series on the Tablo
+
+Movie Metakeys
+--------------
+release_year      = Year movie was released (YYYY)
+cast_             = Semicolon delimited list of cast in Movie
+rating            = MPAA Rating code (e.g. R, PG, PG-13, G)
+***genres_        = Semicolon delimited list of genres for Movie (e.g. Comedy;Thriller)
+movie_path        = Path part of url for metadata about a movie on the Tablo
+
+Query Format (--queryformat) Dynamic Metakeys
+---------------------------------------------
+Wdescription      = Word wrappped description.  See options['wrapwidth'], options['wrapindent'],
+                     options['wrapsubindent']
+Wlong_description = Word wrappped long_description.  See options['wrapwidth'], options['wrapindent'],
+                     options['wrapsubindent']
+friendly_date     = Takes lair_date and outputs a more readable form.  Format can be customized
+                     using options['friendly_date_format'] (defaults to '%A, %B %d, %Y at %I:%M %p')
+
+"""
+    print(Template(helpstring).safe_substitute(SLT_GLOBAL))
+
+
+
+
+# Import python modules.  There is an assumption that you have all of these.
+#  Biggest risk is probably pytz.
+import urllib2,json,sys,time,re,getopt,string,subprocess,tempfile,importlib,textwrap,unicodedata
+from datetime import datetime, tzinfo, timedelta
+from string import Template
+from copy import deepcopy
+from operator import itemgetter
+from timeit import default_timer as timer
+try:
+    import pytz
+    from pytz import reference
+    has_pytz = True
+except:
+    has_pytz = False
+
+# Precompile meta_type regex 
+TABLO_PATH_MANUAL=re.compile("recordings.*programs.*airings")
+TABLO_PATH_SPORTS=re.compile("recordings.*sports.*events")
+TABLO_PATH_MOVIE=re.compile("recordings.*movies.*airings")
+TABLO_PATH_TV=re.compile("recordings.*series.*episodes")
+
+### CONF FILE PROCESSING, part2
+# To solve some chicken egg scenarios, exec the config file data again.
+try:
+    exec(confdata)
+except:
+    pass
+
+
+def transcodeHelp():
+    for transname in TRANSCODER_OPTS:
+        try:
+            print(transname + '\t' + TRANSCODER_OPTS[transname]['help'][0])
+        except:
+            pass
+
+
+def printError(*args):
+    sys.stderr.write(' '.join(map(str,args)) + '\n')
+    sys.stderr.flush()
+
+# Attempt to handle timzone data without pytz
+if (not has_pytz):
+    ZERO = timedelta(0)
+    HOUR = timedelta(hours=1)
+
+    # A UTC class.
+
+    class UTC(tzinfo):
+        """UTC"""
+
+        def utcoffset(self, dt):
+            return ZERO
+
+        def tzname(self, dt):
+            return "UTC"
+
+        def dst(self, dt):
+            return ZERO
+
+    utc = UTC()
+
+    # A class building tzinfo objects for fixed-offset time zones.
+    # Note that FixedOffset(0, "UTC") is a different way to build a
+    # UTC tzinfo object.
+
+    class FixedOffset(tzinfo):
+        """Fixed offset in minutes east from UTC."""
+
+        def __init__(self, offset, name):
+            self.__offset = timedelta(minutes = offset)
+            self.__name = name
+
+        def utcoffset(self, dt):
+            return self.__offset
+
+        def tzname(self, dt):
+            return self.__name
+
+        def dst(self, dt):
+            return ZERO
+
+    # A class capturing the platform's idea of local time.
+
+    import time as _time
+
+    STDOFFSET = timedelta(seconds = -_time.timezone)
+    if _time.daylight:
+        DSTOFFSET = timedelta(seconds = -_time.altzone)
+    else:
+        DSTOFFSET = STDOFFSET
+
+    DSTDIFF = DSTOFFSET - STDOFFSET
+
+    class LocalTimezone(tzinfo):
+
+        def utcoffset(self, dt):
+            if self._isdst(dt):
+                return DSTOFFSET
+            else:
+                return STDOFFSET
+
+        def dst(self, dt):
+            if self._isdst(dt):
+                return DSTDIFF
+            else:
+                return ZERO
+
+        def tzname(self, dt):
+            return _time.tzname[self._isdst(dt)]
+
+        def _isdst(self, dt):
+            tt = (dt.year, dt.month, dt.day,
+                  dt.hour, dt.minute, dt.second,
+                  dt.weekday(), 0, 0)
+            stamp = _time.mktime(tt)
+            tt = _time.localtime(stamp)
+            return tt.tm_isdst > 0
+
+    Local = LocalTimezone()
+
+    # A complete implementation of current DST rules for major US time zones.
+
+    def first_sunday_on_or_after(dt):
+        days_to_go = 6 - dt.weekday()
+        if days_to_go:
+            dt += timedelta(days_to_go)
+        return dt
+
+
+    # US DST Rules
+    #
+    # This is a simplified (i.e., wrong for a few cases) set of rules for US
+    # DST start and end times. For a complete and up-to-date set of DST rules
+    # and timezone definitions, visit the Olson Database (or try pytz):
+    # http://www.twinsun.com/tz/tz-link.htm
+    # http://sourceforge.net/projects/pytz/ (might not be up-to-date)
+    #
+    # In the US, since 2007, DST starts at 2am (standard time) on the second
+    # Sunday in March, which is the first Sunday on or after Mar 8.
+    DSTSTART_2007 = datetime(1, 3, 8, 2)
+    # and ends at 2am (DST time; 1am standard time) on the first Sunday of Nov.
+    DSTEND_2007 = datetime(1, 11, 1, 1)
+    # From 1987 to 2006, DST used to start at 2am (standard time) on the first
+    # Sunday in April and to end at 2am (DST time; 1am standard time) on the last
+    # Sunday of October, which is the first Sunday on or after Oct 25.
+    DSTSTART_1987_2006 = datetime(1, 4, 1, 2)
+    DSTEND_1987_2006 = datetime(1, 10, 25, 1)
+    # From 1967 to 1986, DST used to start at 2am (standard time) on the last
+    # Sunday in April (the one on or after April 24) and to end at 2am (DST time;
+    # 1am standard time) on the last Sunday of October, which is the first Sunday
+    # on or after Oct 25.
+    DSTSTART_1967_1986 = datetime(1, 4, 24, 2)
+    DSTEND_1967_1986 = DSTEND_1987_2006
+
+    class USTimeZone(tzinfo):
+
+        def __init__(self, hours, reprname, stdname, dstname):
+            self.stdoffset = timedelta(hours=hours)
+            self.reprname = reprname
+            self.stdname = stdname
+            self.dstname = dstname
+
+        def __repr__(self):
+            return self.reprname
+
+        def tzname(self, dt):
+            if self.dst(dt):
+                return self.dstname
+            else:
+                return self.stdname
+
+        def utcoffset(self, dt):
+            return self.stdoffset + self.dst(dt)
+    
+        def dst(self, dt):
+            if dt is None or dt.tzinfo is None:
+                # An exception may be sensible here, in one or both cases.
+                # It depends on how you want to treat them.  The default
+                # fromutc() implementation (called by the default astimezone()
+                # implementation) passes a datetime with dt.tzinfo is self.
+                return ZERO
+            assert dt.tzinfo is self
+
+            # Find start and end times for US DST. For years before 1967, return
+            # ZERO for no DST.
+            if 2006 < dt.year:
+                dststart, dstend = DSTSTART_2007, DSTEND_2007
+            elif 1986 < dt.year < 2007:
+                dststart, dstend = DSTSTART_1987_2006, DSTEND_1987_2006
+            elif 1966 < dt.year < 1987:
+                dststart, dstend = DSTSTART_1967_1986, DSTEND_1967_1986
+            else:
+                return ZERO
+
+            start = first_sunday_on_or_after(dststart.replace(year=dt.year))
+            end = first_sunday_on_or_after(dstend.replace(year=dt.year))
+
+            # Can't compare naive to aware objects, so strip the timezone from
+            # dt first.
+            if start <= dt.replace(tzinfo=None) < end:
+                return HOUR
+            else:
+                return ZERO
+
+    # Ok, this just handles hour based offset timezones and not
+    #  all are defined here.  Sorry Newfoundland...
+    timezone = {}
+    timezone['US/Eastern']  = USTimeZone(-5, "Eastern",  "EST", "EDT")
+    timezone['US/Central']  = USTimeZone(-6, "Central",  "CST", "CDT")
+    timezone['US/Mountain'] = USTimeZone(-7, "Mountain", "MST", "MDT")
+    timezone['US/Pacific']  = USTimeZone(-8, "Pacific",  "PST", "PDT")
+    timezone['Canada/Atlantic'] = USTimeZone(-4, "Atlantic", "AST", "ADT")
+    timezone['Canada/Central'] = timezone['US/Central']
+    timezone['Canada/Eastern'] = timezone['US/Eastern']
+    timezone['Canada/Mountain'] = timezone['US/Mountain']
+    timezone['Canada/Pacific'] = timezone['US/Pacific']
+    timezone['America/Halifax'] = timezone['Canada/Atlantic']
+    timezone['America/Glace_Bay'] = timezone['Canada/Atlantic']
+    timezone['America/Moncton'] = timezone['Canada/Atlantic']
+    timezone['America/Goose_Bay'] = timezone['Canada/Atlantic']
+    timezone['America/Blanc-Sablon'] = FixedOffset(-4, "AST")
+    timezone['America/Montreal'] = timezone['US/Eastern']
+    timezone['America/Toronto'] = timezone['US/Eastern']
+    timezone['America/Nipigon'] = timezone['US/Eastern']
+    timezone['America/Thunder_Bay'] = timezone['US/Eastern']
+    timezone['America/Iqaluit'] = timezone['US/Eastern']
+    timezone['America/Pangnirtung'] = timezone['US/Eastern']
+    timezone['America/Resolute'] = timezone['US/Central']
+    timezone['America/Atikokan'] = FixedOffset(-5, "EST")
+    timezone['America/Rankin_Inlet'] = timezone['US/Central']
+    timezone['America/Winnipeg'] = timezone['US/Central']
+    timezone['America/Resolute'] = timezone['US/Central']
+    timezone['America/Rainy_River'] = timezone['US/Central']
+    timezone['America/Regina'] = FixedOffset(-6, "CST")
+    timezone['America/Swift_Current'] = FixedOffset(-6, "CST")
+    timezone['America/Edmonton'] = timezone['US/Mountain']
+    timezone['America/Cambridge_Bay'] = timezone['US/Mountain']
+    timezone['America/Yellowknife'] = timezone['US/Mountain']
+    timezone['America/Inuvik'] = timezone['US/Mountain']
+    timezone['America/Creston'] = FixedOffset(-7, "MST")
+    timezone['America/Dawson_Creek'] = FixedOffset(-7, "MST")
+    timezone['America/Vancouver'] = timezone['US/Pacific']
+    timezone['America/Whitehorse'] = timezone['US/Pacific']
+    timezone['America/Dawson'] = timezone['US/Pacific']
+
+def getMetaType(path):
+    # return meta_type based on Tablo path
+    if (TABLO_PATH_TV.search(path)):
+        return "TV"
+    elif (TABLO_PATH_SPORTS.search(path)):
+        return "Sports"
+    elif (TABLO_PATH_MOVIE.search(path)):
+        return "Movie"
+    elif (TABLO_PATH_MANUAL.search(path)):
+        return "Manual"
+    else:
+        return "Unknown"
+
+def getRecId(path):
+    # get recording id number from Tablo path
+    return int(os.path.basename(path))
+
+def genreLookup(genreid):
+  try:
+    lookupgenre=genre_map[genreid]['title']
+  except:
+    lookupgenre=str(genreid)
+  return lookupgenre
+    
+def doNothing(filename):
+    pass
+
+# Dump json in string format.  You can load by reading the string and surrounding
+#  the read string with curly braces and using json.loads on it.
+def dumpJson(jsonstring, filename):
+    if (not debug):
+        with open(filename, 'w') as f:
+            f.write(jsonstring)
+
+def sltASCIISanitize(name):
+    name = re.sub(r'[^\x00-\x7f]','_',name)
+    name = unicodedata.normalize('NFKD', name).encode('ascii','ignore')
+    return name
+
+# Remove single quotes and possibly other unsafe characters.  Used for 'E'
+#  strings used in transcoder (ffmpeg) options.  Side effect for 
+#  friendly_titles... in that sXXeYY info goes on first line and title
+#  goes on 2nd line.  Yes... this is very specific.  Alternatively, could
+#  create 'G' names for things like series, title (Gseries, Gtitle) and
+#  leave the rest to you to configure your TRANSCODER_OPTS.
+def sltEscapeString(s):
+    temp = re.sub(r"[':]","",s)
+    temp = re.sub(r'(.* - s[0-9][0-9]+e[0-9][0-9]+) - (.*)',r'\1\n\2',temp)
+    if (os.name == 'nt'):
+        temp = sltASCIISanitize(temp)
+    return temp
+
+def printSanitize(name):
+    if (os.name == 'nt'):    
+        # Added this... yuk
+        name = re.sub(r'[^\x00-\x7f]','_',name)
+        return name
+    else:
+        return name
+
+# Substitute for bad chars (for things that go into files)
+#  These are aslo used in 'E' meta types like Etitle, Eseries
+def sltSanitize(name):
+    global options
+
+    if (os.name == 'nt' or options['no_utf8_names']):    
+        # Feel free to add to this.
+        name = re.sub(r'[/:"/?<>\\*|]','_',name)
+        # Added this... ruins any chance of "nice" filenames with
+        #  non-ascii chars
+        if (not PRESERVE_FILENAMES):
+            name = sltASCIISanitize(name)
+        return name
+    else:
+        name = re.sub(r'[/]','-',name)
+        return name
+
+
+# Return title minus any first word article, see articles
+def sortTitle(title):
+    articles = ['a','an','the']
+    # Check first word against articles array
+    #  if matched, remove word and return the rest.
+    word = title.split(' ',1)[0].lower()
+    for article in articles:
+       if (article == word):
+           try:
+               return title.split(' ',1)[1]
+           except:
+               return title
+    return title
+
+# This function takes meta-dataname~=value and turns it into
+#  an appropriate re for line searching.
+def transformSearch(search_pat):
+    nsearch_pat = re.sub(r'(.*)~=(.*)',r'"\1": ["]?\2', search_pat)
+    if (nsearch_pat):
+        search_pat = nsearch_pat
+    return search_pat
+
+# This may get redone.  Simple way to do a progress bar.
+def displayProgress(progress_counter, progress_max, bar_length, prefix=''):
+    try:
+        percent = float(progress_counter) / progress_max
+        hashes = '#' * int(round(percent * bar_length))
+        spaces = ' ' * (bar_length - len(hashes))
+    except:
+        percent = 'N/A'
+    if (sys.stdout.isatty()):
+        if (percent == 'N/A'):
+            sys.stdout.write('\r' + prefix)
+        else:
+            sys.stdout.write('\r' + prefix + '[{0}] {1}% '.format(hashes + spaces, int(round(percent * 100))))
+    else:
+        if (percent != 'N/A'):
+            sys.stdout.write(str(int(round(percent * 100))) + ',')
+        if (percent > .995):
+            print(' <-' + prefix)
+    sys.stdout.flush()
+
+# Turn bytes into a human readable string.
+def humanizeValue(num, suffix='B'):
+    for unit in ['','Ki','Mi','Gi','Ti','Pi','Ei','Zi']:
+        if abs(num) < 1024.0:
+            return '%3.1f%s%s' % (num, unit, suffix)
+        num /= 1024.0
+    return '%.1f%s%s' % (num, 'Yi', suffix)
+
+def createTempfile(prefix, ext, keepdir=''):
+    # Create temporary file with extesion, optional keepdir
+    #  Returns array of open file handle and the fullname of the temporary file.
+    #  On error, returns an empty array.
+    if (keepdir):
+        # This file stays in provided keepdir
+        try:
+            fd, tempfilename = tempfile.mkstemp(suffix = ext,
+                dir = keepdir,
+                prefix = prefix)
+        except:
+            printError('Could not create temporary file in ' + keepdir)
+            return 
+    else:
+        # This file stays in system temp area
+        try:
+            fd, tempfilename = tempfile.mkstemp(suffix = ext,
+                prefix = prefix)
+        except:
+            printError('Could not create temporary file (' + ext + ').')
+            return 
+    try:
+        if (not debug):
+            # Create an open file handle opened for writing
+            fh = os.fdopen(fd, 'wb+')
+            fh.close()
+        if (keepdir):
+            print('Preserved temporary (' + ext + ') file location: [' +
+                tempfilename + ']')
+    except:
+        printError('Could not create temporary file (' + ext + ').')
+        return 
+    return tempfilename
+
+
+# Process and format, could containe resource locations
+def doFormat(strFormat, record, out):
+    global do_once, wrapper, options
+
+    # Create some dynamic queryformat elements
+    try:
+        record['Wdescription'] = wrapper.fill(record['description'])
+    except:
+        pass
+    try:
+        record['Wlong_description'] = wrapper.fill(record['long_description'])
+    except:
+        pass
+    try:
+        tempdate = datetime.strptime('{0:s}-{1:s}-{2:s}T{3:s}:{4:s}'.format(record['lair_date_year'], record['lair_date_month'], record['lair_date_day'], record['lair_date_hour'], record['lair_date_minute']), '%Y-%m-%dT%H:%M')
+        record['friendly_date'] = tempdate.strftime(options['friendly_date_format'])
+    except:
+        pass
+
+    # Array of urls separated by semi-colon
+    uri = re.match(r'^URL\((?P<urlarray>.*)\)', strFormat)
+    if (uri):
+        url_templatize = True
+    else:
+        uri = re.match(r'^url\((?P<urlarray>.*)\)', strFormat)
+        url_templatize = False
+
+    if (uri):
+        for url in uri.group('urlarray').split(';'):
+            url = re.match(r'^(?P<scheme>[^:]{1,10}:)//(?P<path>.*)', url)
+            if (url):
+                if (url_templatize):
+                    path = Template(url.group('path')).safe_substitute(record).encode('utf-8')
+                else:
+                    path = url.group('path')
+                
+                try:
+                    # If the scheme begins with one '1' do once add to the do once global list
+                    if (url.group('scheme')[0] == '1'):
+                        scheme = url.group('scheme')[1:]
+                        urlpath = scheme + '//' + path
+
+                        if urlpath in do_once:
+                            continue
+                        else:
+                            do_once += [urlpath]
+                    else:
+                        scheme = url.group('scheme')
+                        urlpath = scheme + '//' + path
+
+                    resource = urllib2.urlopen(urlpath)
+                    resourceformat = resource.read()
+                    resource.close()
+                    if (out != "string"):
+                        print(Template(resourceformat).safe_substitute(record).encode(termenc).decode('string escape'))
+                    else:
+                        return Template(resourceformat).safe_substitute(record).encode(termenc)
+                except:
+                    # Be silent on any url fail
+                    pass
+    else:
+        if (out != "string"):
+            print(Template(strFormat).safe_substitute(record).encode(termenc).decode('string escape'))
+        else:
+            return Template(strFormat).safe_substitute(record).encode(termenc)
+
+def deleteResource(tablo_ip, path, friendly_title, confirm, filename):
+    if confirm != 'Y':
+        print('About to delete [' + friendly_title + '], enter "Y" to confirm:')
+        ans = sys.stdin.readline().strip()
+        if ans != 'Y':
+            return
+    url = Template(TABLO_REC_INFO).substitute(tablo_ip=tablo_ip)
+    url = url.format(path)
+    resource = urllib2.Request(url)
+    resource.get_method = lambda: 'DELETE'
+    print('Deleting [' + friendly_title + ']')
+    dummy = urllib2.urlopen(resource)
+    
+def sltSortedList(l, decending, *args):
+    return sorted(l, key=itemgetter(*args), reverse=decending)
+
+# Does the work of converting a db_rec into a transcoded file(s) (see Steps
+#  comments below).
+def doConvert(dbrecord, options, basedirs, filename_pats, transcoder_names):
+
+    # If there is no transcoder (assumes FFMPEG right now), nothing to do!
+    #if (not os.path.isfile(FFMPEG)):
+    #    return
+
+    # Essentials 
+    # We will manipulate dbrecord with dynamic metadata, so
+    #  to keep away from a sideeffect, we deepcopy it
+    db_rec = deepcopy(dbrecord)
+    db_rec.update(options)
+    tablo_ip = db_rec['tablo_ip']
+    rec_id = db_rec['rec_id']
+    air_date = db_rec['air_date']
+    meta_type = db_rec['meta_type']
+    db_rec['lang3'] = 'eng'
+    db_rec['lang'] = 'en'
+    db_rec['json'] = json.dumps(dbrecord)
+
+    # I really don't like having to do this, but if we include friendly_title as
+    #  embedded, for example, ffmpeg option, have to replace/escape the single quotes.
+    # Break Efriendly_title2 into two lines by inserting ^L
+    db_rec['Efriendly_title2'] = sltEscapeString(db_rec['friendly_title'])
+    
+    # Create the 'E' sanitized strings for things usually found in filenames and paths.
+    db_rec['Etitle'] = sltSanitize(db_rec['title'])
+    try:
+        db_rec['Eseries'] = sltSanitize(db_rec['series'])
+    except:
+        pass
+    
+    # Populate gif_fontfile
+    db_rec['gif_fontfile'] = GIF_FONTFILE
+
+    # Only TV and Sports could have season, episode
+    try:
+        season_number = db_rec['season_number']
+    except:
+        season_number = 0
+
+    try:
+        episode_number = db_rec['episode_number']
+    except:
+        episode_number = 0
+
+    # We will export these back into db_rec anyway for all types
+    #  and to handle situations where we did not have values for TV or Sports
+    db_rec['season_number'] = season_number
+    db_rec['episode_number'] = episode_number
+    # Plex uses thetvdb.com for TV lookups, but seems to prefer padded 2 digit entries
+    db_rec['plex_season_number'] = '{0:02d}'.format(season_number)
+    db_rec['plex_episode_number'] = '{0:02d}'.format(episode_number)
+
+    # A flag to tell us if we need to pull ts data from the Tablo, or
+    #  has it already been done.
+    if (options['use_existing_tsfile']):
+        # This only works well when one item is selected, be careful!
+        have_tsfile = True
+    else:
+        have_tsfile = False
+
+    # A flag to tell us if we need to pull subtite data from the ts file, or
+    #  has it already been done.
+    have_srtfile = False
+    have_commfreefile = False
+
+    # After all db_rec meta data updates and augments
+    #  Replace variables inside of basedir and filename using augmented db_rec
+    try:
+        basedir = basedirs[meta_type]
+    except:
+        basedir = basedirs['Default']
+    basedir_t = Template(basedir)
+    basedir = basedir_t.safe_substitute(db_rec)
+    try:
+        filename = filename_pats[meta_type]
+    except:
+        filename = filename_pats['Default']
+    filename_t=Template(filename)
+    filename = filename_t.safe_substitute(db_rec)
+
+
+    # The fully qualified filename is the basedir + filename
+    #local_encoding = sys.getfilesystemencoding()
+    fq_filename = basedir + '/' + filename
+    # Expand filename in case it refers to user's home by tilde or other.
+    fq_filename = os.path.expanduser(fq_filename)
+    # This may not seemed required, but it is possible for the filename_pat to
+    #  have directories paths in it.  Just trying to be flexible.
+    final_dir = os.path.dirname(fq_filename)
+    final_filename = os.path.basename(fq_filename)
+    fq_filename = final_dir + '/' + final_filename
+
+    db_rec['final_dir'] = final_dir
+    db_rec['final_filename'] = final_filename
+    db_rec['fq_filename'] = fq_filename
+
+
+    # if we have keepdir and it is '@', the use final_dir for the temp files
+    if (options['keepdir'] == '@'):
+        keepdir = final_dir
+    else:
+        keepdir = options['keepdir']
+
+    # Step 1, Loop through transcoder_names just so we can know the 
+    #  extension of the various transcodes, and check for their
+    #  existence (unless noclobber).
+    zap_coder = ''
+    for transcoder_name in transcoder_names:
+        if ('zap' in TRANSCODER_OPTS[transcoder_name]):
+            zap_coder = transcoder_name
+        # Check for valid function or binary
+        if (TRANSCODER_OPTS[transcoder_name]['command'][0] in TRANSCODER_FUNCS):
+            try:
+                # Module function from Python library?
+                mod_name, func_name = TRANSCODER_OPTS[transcoder_name]['command'][0].rsplit('.',1)
+                mod = importlib.import_module(mod_name)
+                func = getattr(mod, func_name)
+            except:
+                # Function defined here?
+                try:
+                    dummy=callable(TRANSCODER_OPTS[transcoder_name]['command'][0])
+                except:
+                    printError('Error: Cannot find allowed function for [' + transcoder_name + '], [' + TRANSCODER_OPTS[transcoder_name]['command'][0] + ']')
+                    return
+        else:
+            if (not os.path.isfile(TRANSCODER_OPTS[transcoder_name]['command'][0])):
+                printError('Error: Cannot find executable for [' + transcoder_name + '], [' + TRANSCODER_OPTS[transcoder_name]['command'][0] + ']')
+                return
+        # Get the dictionary entry from TRANSCODER_OPTS, specifically the ext
+        try:
+            fext = TRANSCODER_OPTS[transcoder_name]['ext'][0]
+        except:
+            printError('Could not find ext for TRANSCODER_OPTS["' + transcoder_name + '"]')
+            sys.exit(7)
+        TRANSCODER_OPTS[transcoder_name]['skip'] = [ '' ]
+        if (options['noclobber']):
+            if (os.path.isfile(fq_filename + fext)):
+                printError('File exists (try --clobber), ' + fq_filename.encode('utf-8') + fext)
+                TRANSCODER_OPTS[transcoder_name]['skip'] = [ 'True' ]
+    if (not zap_coder and options['nocommercials']):
+        printError('Warning: No zap compatible transcoder provided. Transcode may have audio/video sync issues.')
+
+    # Make sure we can create our final transcode file(s) in output dir
+    try:
+        if (not os.path.isdir(final_dir)):
+            os.makedirs(final_dir)
+    except:
+        printError('Could not create output directory, ' + final_dir)
+       
+    # No interrupts here, just trying to do good temp file house cleaning.
+    #  Everything needs to complete and then we can do the removes.... and
+    #  then you can Ctrl-C again.  See finally:
+
+    try:
+        try:
+            if (options['keepdir'] == '@' or options['existing_ts']):
+                ts_filename = fq_filename + '.ts'
+                zapts_filename = ts_filename
+                if (options['existing_ts']):
+                    # Check for commercial zap situation
+                    neworig_filename, ext = os.path.splitext(ts_filename)
+                    neworig_filename = neworig_filename + '-orig' + ext
+                    if (os.path.isfile(neworig_filename)):
+                        zapts_filename = ts_filename
+                        ts_filename = neworig_filename
+                print("{0:40s}".format('Tablo (.ts) location:') + '[' + ts_filename.encode('utf-8').strip() + ']')
+                if (options['existing_ts'] and os.path.isfile(ts_filename)):
+                    have_tsfile = True
+            else:
+                ts_filename = createTempfile('Tablo', '.ts', options['keepdir'])
+                zapts_filename = ts_filename
+        except:
+            sys.exit(4)
+
+        # Now loop through transcoder_names and execute each transcode using the
+        #  ts_filename and srt_filename data 
+        printworking = True
+        for transcoder_name in transcoder_names:
+
+            try:
+                if (TRANSCODER_OPTS[transcoder_name]['skip'][0]):
+                    continue
+            except:
+                pass
+
+            if (options['nocommercials']):
+                do_nocommercials=options['nocommercials']
+            else:
+                try:
+                    do_nocommercials = TRANSCODER_OPTS[transcoder_name]['zap'][0]
+                except:
+                    do_nocommercials = ''
+
+            if (printworking):
+                print("{0:40s}".format('Working on:') + '[' + fq_filename.encode('utf-8').strip() + ']')
+                printworking = False
+
+            # If transcode does not require ts, skip it
+            try:
+                skip_ts = TRANSCODER_OPTS[transcoder_name]['skip_ts']
+            except:
+                skip_ts = ''
+
+            # have_tsfile is a flag set once the ts is downloaded from the Tablo so 
+            #  that it is not retrieved again (for multiple transcodes on same ts file).
+            if (not debug and not have_tsfile and not skip_ts):
+                # Step 2, Extract ts data from Tablo
+                segs_post_url = Template(TABLO_REC_INFO).substitute(tablo_ip=tablo_ip)
+                segs_post_url = segs_post_url.format(db_rec['path']) + '/watch'
+                try:
+                    segs_post_json = urllib2.urlopen(segs_post_url, data='')
+                    segs_meta = json.load(segs_post_json)
+                    segs_post_json.close()
+                except:
+                    printError('Can not get ' + segs_post_url + '. Bad id?')
+                    continue
+                segs_pl_url = segs_meta['playlist_url'].encode('utf-8').strip()
+                try:
+                    segs_pl_response = urllib2.urlopen(segs_pl_url)
+                except:
+                    printError('Can not get ' + segs_pl_url)
+                    continue
+                segs_pl_html = segs_pl_response.read()
+                segs_pl_response.close()
+                pl_files = re.findall(r'.*/pls.m3u8.*', segs_pl_html)
+                ts_files = []
+                for pl_file in pl_files:
+                    segs_pls_url = Template(TABLO_SEGS).substitute(tablo_ip=tablo_ip)
+                    segs_pls_url = segs_pls_url.format(pl_file)
+                    try:
+                        segs_pls_response = urllib2.urlopen(segs_pls_url)
+                    except:
+                        printError('Can not get ' + segs_pls_url)
+                        sys.exit(9)
+                    segs_pls_html = segs_pls_response.read()
+                    segs_pls_response.close()
+                    ts_files += re.findall(r'.*/segw.ts.*', segs_pls_html) 
+
+                tslen = len(ts_files)
+                tscount=1
+                bar_length=20
+                if (options['truncate_ts']):
+                    tslen = tslen - int(options['truncate_ts'])
+                try:
+                    # Should not be a reason for this to fail, we just did it.
+                    temp_f = open(ts_filename, 'wb+')
+                except:
+                    sys.exit(5)
+                tstart = timer()
+                ts_last = ''
+                for ts in ts_files:
+                    ts_url = Template(TABLO_SEGS).substitute(tablo_ip=tablo_ip)
+                    ts_url = ts_url.format(ts)
+                    if ts_url == ts_last:
+                        tscount = tscount + 1
+                        continue
+                    else:
+                        ts_last = ts_url
+                    ts_response = urllib2.urlopen(ts_url)
+                    temp_f.write(ts_response.read())
+                    ts_response.close()
+                    if (sys.stdout.isatty()):
+                        displayProgress(tscount, tslen, bar_length,
+                           "{0:40s}".format(" Retrieving Tablo Data ({0:d}): ".format(rec_id)))
+                    else:
+                        print("Retrieved: " + ts_url)
+                    tscount = tscount + 1
+                    if (tscount > tslen):
+                        break
+                tend = timer()
+                print('Elapsed seconds ' + str(round(tend - tstart)))
+                temp_f.close()
+                have_tsfile = True
+            else:
+                if (debug):
+                    print('[ ' + fq_filename.encode('utf-8').strip() + ' ]')
+                    print('')
+                    print('RETRIEVE FROM TABLO')
+                    print('[ -> ' + ts_filename.encode('utf-8').strip() + ']')
+
+            # We need this later on
+            devnull = open(os.devnull, 'w')
+
+            # Step 2.5, for skipping commercials, scan ts_filename using ffmpeg, capture
+            #  blackframe data and use to break apart and create new concatenated
+            #  ts file with (hopefully) commercials removed.  Remove original ts and
+            #  use the new ts as ts_filename.
+            
+            if (do_nocommercials and not have_commfreefile):
+                blacklist_optsa = [ FFMPEG, '-i', ts_filename, '-vf', 'blackdetect=d=' + options['blackdetect_d'] + ':pic_th=' + options['blackdetect_pic_th'] + ':pix_th=' + options['blackdetect_pix_th'], '-an', '-f' , 'null', '-'] 
+                if (debug):
+                    print(blacklist_optsa)
+                else:
+                    if (not sys.stdout.isatty()):
+                        print(blacklist_optsa)
+                    blackproc = subprocess.Popen(blacklist_optsa,stderr=subprocess.PIPE,stdout=devnull,stdin=devnull)
+                    bplen = int(db_rec['video_duration'])
+                    bar_length=20
+                    bpa = [ ('0', '0', '.00001') ]
+                    tstart = timer()
+                    if (sys.stdout.isatty()):
+                        displayProgress(0, bplen, bar_length, "{0:40s}".format(" Searching for commercials: "))
+                    while True:
+                       bpline = blackproc.stderr.readline()
+                       if (bpline == ''):
+                           break
+                       # Check for match, and parse percentage
+                       bpprogress = re.match(r'^.*black_start:(?P<black_start>[0-9.][0-9.]*) black_end:(?P<black_end>[0-9.][0-9.]*) black_duration:(?P<black_duration>[0-9.][0-9.]*)', bpline)
+                       if (bpprogress):
+                           bpa += [ (bpprogress.group('black_start'), bpprogress.group('black_end'), bpprogress.group('black_duration')) ]
+                           try:
+                               bpsecs = bpprogress.group('black_end')
+                               if (sys.stdout.isatty()):
+                                   displayProgress(bpsecs, bplen, bar_length, "{0:40s}".format(" Searching for commercials: "))
+                           except:
+                               pass
+                       if (not sys.stdout.isatty()):
+                           print(bpline.strip())
+                    if (sys.stdout.isatty()):
+                        displayProgress(bplen, bplen, bar_length, "{0:40s}".format(" Searching for commercials: "))
+                    tend = timer()
+                    print('Elapsed seconds ' + str(round(tend - tstart)))
+                    
+                    # Create a last dummy entry using video_duration
+                    bpa += [ (str(bplen), str(bplen), '.00001') ]
+
+                    start = []
+                    end = []
+                    duration = []
+                    # Simply create the arrays from blackdetection
+                    for bt in bpa:
+                        s, e, d = bt
+                        start.append(float(s))
+                        end.append(float(e))
+                        duration.append(float(d))
+                    if (not sys.stdout.isatty() or options['idebug']):
+                        print(bpa)
+
+                    if (do_nocommercials == '1'):
+                        # Go through the blackdetection values and try to determine
+                        #  what segments to pull out (things that are not commercials).
+                        i = 0
+                        inter = int(options['interval'])
+                        lstart = 0
+                        lastsegend = 0
+                        m = 1
+                        trycount = 0
+                        r = 0
+                        seg_clips = []
+                        backtoback = float(options['backtoback'])
+                        # Go through the blackdetection values (sometimes we go up and down the list)
+                        while (i < len(bpa)):
+                            l=start[i] - lstart
+                            if (options['idebug']):
+                                print('i=' + str(i) + ', start[' + str(i) + ']=' + str(start[i]))
+                                print('lstart=' + str(lstart))
+                                print('start[i] - lstart =' + str(l))
+                            # If the difference between the current blackframe and the last segment end
+                            #  is greater than our interval, good chance we are in a show.  What messes
+                            #  this up is a commercial that runs longer than the interval (e.g. longer
+                            #  than inter seconds).  It's also possible that blackdetection failed to
+                            #  detect a black frame inside long running stream of commercials so that
+                            #  the whole bunch goes over the interval.
+                            if (l > inter):
+                                # If the current black frame time minus the last show segment end is
+                                #  too big, then we seem to be stuck too long looking at commercials,
+                                #  so adjust the interval down by interval_reduce and try again.  Give
+                                #  up after reduce_attempts reductions.  To be honest, the first reduce
+                                #  is usually nonsensical, so it is an effective (reduce_attempts - 1)
+                                #  reductions.
+                                #
+                                # Cause?  A very short piece of show in the midst of commercials.
+                                #  This is very error prone btw.
+                                if ((start[i] - start[lastsegend]) > int(options['commercials_max_time']) and trycount <= int(options['reduce_attempts'])):
+                                    if (options['idebug']):
+                                        print('commercials_max_time exceeded')
+                                        print(trycount)
+                                    inter = inter - int(options['interval_reduce'])
+                                    i = lastsegend
+                                    trycount += 1
+                                    continue
+                                else:
+                                    trycount = 0
+                                # Reset inter in case we had to play with it above because it seemed
+                                #  we were stuck too long in commercials.
+                                inter = int(options['interval'])
+                                segstart = lstart
+                                segend = start[i]
+                                # About to add a clip, but join if this clip is within backtoback value
+                                if ((start[i] - end[lastsegend]) < backtoback):
+                                    try:
+                                        lastseg_element = seg_clips.pop()
+                                        lse_start, lse_end = lastseg_element
+                                        seg_clips += [ (lse_start, start[i]) ]
+                                    except:
+                                        if (options['idebug']):
+                                            print('start[' + str(i) + ']=' + str(start[i]) + ', end[' + str(lastsegend) + ']=' + str(end[lastsegend]))
+                                        seg_clips += [ (lstart, start[i]) ]
+                                else:
+                                    seg_clips += [ (lstart, start[i]) ]
+                                if (options['idebug']):
+                                    print('seg_clip lstart=' + str(lstart) + ', start[' + str(i) + ']=' + str(start[i]))
+                                lastsegend = i
+                                m += 1
+                            lstart=end[i]
+                            i += 1
+                        # If there is a big difference between the lastsegend and the last start, then
+                        #  apply interval_reduce and see if there's something left to pick up.
+                        if (options['idebug']):
+                            print('lstart=' + str(lstart) + ', start[' + str(lastsegend) + ']=' + str(start[lastsegend]) + ', commercials_max_time=' + str(options['commercials_max_time']))
+                        trycount2 = 0
+                        while (trycount2 <= 10 and (lstart - start[lastsegend]) > int(options['commercials_max_time'])):
+                            trycount = 0
+                            inter = int(options['interval'])
+                            while (trycount <= int(options['reduce_attempts'])):
+                                i = lastsegend
+                                lstart = end[i]
+                                inter = inter - int(options['interval_reduce'])
+                                while (i < len(bpa)):
+                                    l=start[i] - lstart
+                                    if (options['idebug']):
+                                        print('trycount=' + str(trycount) + ', start[' + str(i) + ']=' + str(start[i]) + ', lstart=' + str(lstart) + ', l=' + str(l) + ', inter=' + str(inter))
+                                    if (l > inter):
+                                        segstart = lstart
+                                        segend = start[i]
+                                        seg_clips += [ (lstart, start[i]) ]
+                                        if (options['idebug']):
+                                            print('seg_clip (end) lstart=' + str(lstart) + ', start[' + str(i) + ']=' + str(start[i]))
+                                        lastsegend = i
+                                        trycount = int(options['reduce_attempts'])
+                                    lstart=end[i]
+                                    i += 1
+                                trycount += 1
+                                trycount2 += 1
+                        # Postscripts on TV shows is short, like a commercial.  This section
+                        #  merely includes all the final content, postscript and commercials
+                        #  since it is hard to distinguish between the two.
+                        #
+                        # Turn this on with -o postscript=True
+                        if (options['postscript']):
+                            try:
+                                seg_clips += [ (start[lastsegend + 1], -1) ]
+                            except:
+                                pass
+                    elif (do_nocommercials == '2'):
+                        # A more simplified commercial removal algorithm
+                        inter = int(options['interval'])
+                        commercials_max_time = int(options['commercials_max_time'])
+                        maxshow = int(options['maxshow'])
+                        lastend=0
+                        laststart=0
+                        sstart=0
+                        bcount=0
+                        lastsegend=0
+                        k=[]
+                        commtime=0
+                        lastblack = 1000
+                        ms = 0
+                        ll=len(bpa)
+                        i=0
+                        while (i < ll):
+                            s,e,t = bpa[i]
+                            blackstart=float(s)
+                            blackend=float(e)
+                            blacktime=float(t)
+                            delta = blackstart - lastend
+                            if (delta > inter  or (ms and ms < maxshow)):
+                                k += [(lastend, blackstart, blacktime)]
+                                commtime = 0
+                                lastblack = blacktime
+                                ms += delta
+                            else:
+                                commtime += delta
+                                lastblack = blacktime
+                                ms = 0
+                                lastblack = 1000
+                            if (commtime > commercials_max_time):
+                                k += [(lastend, blackstart, blacktime)]
+                                commtime = 0
+                                lastblack = blacktime
+                                ms += delta
+                            lastend = blackend
+                            i = i + 1
+                        seg_clips = []
+                        count=1
+                        for element in k:
+                            start,end,btime = element       
+                            delta = end - start
+                            if (int(delta)):
+                                seg_clips += [ (start, end) ]
+                            count += 1
+
+                    # Loop through seg_clips and use ffmpeg to carve
+                    #  original .ts into pieces and concatenate output into one
+                    #  .ts with commercials removed.  Remove old ts_filename. Then
+                    #  rename new .ts file as ts_filename.
+                    newts_filename, ext = os.path.splitext(ts_filename)
+                    newts_filename = newts_filename + '-zap' + ext
+                    i = 1
+                    tstart = timer()
+                    for seg_tuple in seg_clips:
+                        seg_start, seg_end = seg_tuple
+                        try:
+                            newtemp_f = open(newts_filename, 'ab+')
+                        except:
+                            printError('Could not create temporary file in ' + newts_filename.encode('utf-8').strip())
+                            sys.exit(4)
+                        if (seg_end > 0):
+                            seg_optsa = [ FFMPEG, '-i', ts_filename, '-ss', str(seg_start), '-to', str(seg_end), '-y', '-c', 'copy', '-avoid_negative_ts', '1', '-f', 'mpegts', '-' ]
+                        else:
+                            seg_optsa = [ FFMPEG, '-i', ts_filename, '-ss', str(seg_start), '-y', '-c', 'copy', '-avoid_negative_ts', '1', '-f', 'mpegts', '-' ]
+                        if (options['idebug']):
+                            print(seg_optsa)
+                        seg_proc = subprocess.Popen(seg_optsa,stderr=devnull,stdout=newtemp_f,stdin=devnull)
+                        seg_proc.wait()
+                        newtemp_f.close()
+                        if (sys.stdout.isatty()):
+                            displayProgress(i, len(seg_clips), bar_length, "{0:40s}".format(" Removing commercials (z" + do_nocommercials +"): "))
+                        i += 1
+                    if (sys.stdout.isatty()):
+                        displayProgress(len(seg_clips), len(seg_clips), bar_length, "{0:40s}".format(" Removing commercials (z" + do_nocommercials +"): "))
+                    tend = timer()
+                    print('Elapsed seconds ' + str(round(tend - tstart)))
+
+                    # Do we need more error checking here?
+                    if (options['keepdir'] == '@'):
+                        neworig_filename, ext = os.path.splitext(zapts_filename)
+                        neworig_filename = neworig_filename + '-orig' + ext
+                        if (ts_filename != neworig_filename):
+                            os.rename(ts_filename, neworig_filename)
+                            print("{0:40s}".format('Preserved (.ts) with commercials:') + '[' + neworig_filename.encode('utf-8').strip() + ']')
+                    else:
+                        os.remove(zapts_filename)
+                    os.rename(newts_filename, zapts_filename)
+                    have_commfreefile = True
+ 
+            db_rec['ts_filename'] = ts_filename
+ 
+            # Step 3, Setup for extracting closed captions from saved ts data
+            #  Now that I have a ts file, we can extract closed captions as an srt
+            # Note: Comes after 2.5 in case I figure out how to adjust the srt file
+            #  to work with a reduced ts file that has no commercials.
+            if (options['ccaption'] and not have_srtfile):
+                if (options['keepsrt'] == 'Yes'):
+                    dummy_filename = fq_filename + '.ts'
+                    # use ts_filename as name for srt file in same keepdir location
+                    srt_filename, ext = os.path.splitext(dummy_filename)
+                    # Named using Plex style with <lang>.srt
+                    srt_filename = srt_filename + '.' + db_rec['lang3'] + '.srt'
+                    print("{0:40s}".format('Srt file location: ') + '[' + srt_filename.encode('utf-8').strip() + ']')
+                else:
+                    try:
+                        srt_filename = createTempfile('Tablo', '.srt', options['keepdir'])
+                    except:
+                        sys.exit(4)
+                try:
+                    if (not debug):
+                        srt_file_f = open(srt_filename, 'wb+')
+                        # We just need the filename, not sure if there is
+                        #  a better way
+                        srt_file_f.close()
+                except:
+                    printError('Could not create file in ' + srt_filename.encode('utf-8').strip())
+                    sys.exit(4)
+                db_rec['srt_filename'] = srt_filename
+ 
+                # Go through the command options and substitute variables
+                ccextractor_newopts = {}
+                for ccextractoropts in CCEXTRACTOR_OPTS['Default']:
+                   newopts = []
+                   for ccextractoropt in CCEXTRACTOR_OPTS['Default'][ccextractoropts]:
+                       newopts = newopts + [ Template(ccextractoropt).safe_substitute(db_rec) ]
+                   ccextractor_newopts[ccextractoropts] = newopts
+                ccaption_optsa = ccextractor_newopts['command'] + ccextractor_newopts['inputfile'] + ccextractor_newopts['options'] + ccextractor_newopts['outputfile']
+ 
+                if (debug or not sys.stdout.isatty()):
+                    print('')
+                    print('CCEXTRACTOR')
+                    print(ccaption_optsa)
+ 
+                # Step 4, Extract closed captions from saved ts data
+                if (not debug):
+                    ccproc = subprocess.Popen(ccaption_optsa,stderr=subprocess.PIPE,stdout=devnull)
+                    cclen = 100
+                    bar_length=20
+                    cc_count=1
+                    tstart = timer()
+                    while True:
+                       ccline = ccproc.stderr.readline()
+                       if (ccline == ''):
+                           break
+                       # Check for match, and parse percentage
+                       ccprogress = re.match(r'^[#][#][#]PROGRESS[#](?P<num>[0-9]+)[#]', ccline)
+                       try:
+                           cc_count = ccprogress.group('num')
+                           if (sys.stdout.isatty()):
+                               displayProgress(cc_count, cclen, bar_length, "{0:40s}".format(" Extracting CC as Subtitle: "))
+                       except:
+                           pass
+                       if (not sys.stdout.isatty()):
+                           print(ccline.strip())
+                    tend = timer()
+                    print('Elapsed seconds ' + str(round(tend - tstart)))
+                have_srtfile = True
+ 
+            transcoderopts = deepcopy(TRANSCODER_OPTS[transcoder_name])
+            # Do substitutions of variables on transcoder options
+            for transcoderopttype in transcoderopts:
+                newopts = []
+                for transcoderopt in transcoderopts[transcoderopttype]:
+                    newopts = newopts + [ Template(transcoderopt).safe_substitute(db_rec) ]
+                transcoderopts[transcoderopttype] = newopts
+
+            # Offset video so as to account for delayed closed captions on Live shows.
+            if (transcoderopts['command'][0] == FFMPEG):
+                try:
+                    if 'Live' in db_rec['qualifiers_'].split(';') or options['ccoffset']:
+                        if (options['ccoffset']):
+                            offset = options['ccoffset']
+                        else:
+                            offset = options['liveoffset']
+                        transcoderopts['inputfile'] = [ '-itsoffset', offset ] + transcoderopts['inputfile']
+                except:
+                    pass
+
+            # Gather metadata for transcode if applicaable
+            #  This right now is ffmpeg specific
+            if (transcoderopts['command'][0] == FFMPEG):
+                if ('metadata' in transcoderopts):
+                    meta_opts = []
+                    try:
+                        meta_opts = meta_opts + ['-metadata','{0}={1}'.format('title',db_rec['title'])]
+                    except:
+                        pass
+                    if (meta_type == 'TV'):
+                        try:
+                            if (db_rec['original_air_year'] != 1900):
+                                meta_opts = meta_opts + ['-metadata','{0}={1}'.format('date',db_rec['original_air_date'])]
+                        except:
+                            pass
+                        try:
+                            meta_opts = meta_opts + ['-metadata','{0}={1}'.format('media_type',10)]
+                        except:
+                            pass
+                    elif (meta_type == 'Sports'):
+                        try:
+                            meta_opts = meta_opts + ['-metadata','{0}={1}'.format('date',db_rec['game_date'])]
+                        except:
+                            pass
+                        try:
+                            meta_opts = meta_opts + ['-metadata','{0}={1}'.format('media_type',10)]
+                        except:
+                            pass
+                    elif (meta_type == 'Movie'):
+                        try:
+                            meta_opts = meta_opts + ['-metadata','{0}={1}'.format('date',db_rec['release_year'])]
+                        except:
+                            pass
+                        try:
+                            meta_opts = meta_opts + ['-metadata','{0}={1}'.format('media_type',0)]
+                        except:
+                            pass
+                    if (meta_type == 'TV' or meta_type == 'Sports'):
+                        # Album is sort of like show, for things that do not understand show
+                        try:
+                            meta_opts = meta_opts + ['-metadata','{0}={1}'.format('album',db_rec['series'])]
+                        except:
+                            pass
+                        try:
+                            meta_opts = meta_opts + ['-metadata','{0}={1}'.format('show',db_rec['series'])]
+                        except:
+                            pass
+                        try:
+                            meta_opts = meta_opts + ['-metadata','{0}={1}'.format('season_number',db_rec['season_number'])]
+                        except:
+                            pass
+                        try:
+                            meta_opts = meta_opts + ['-metadata','{0}={1}'.format('episode_sort',db_rec['episode_number'])]
+                        except:
+                            pass
+                        try:
+                            meta_opts = meta_opts + ['-metadata','{0}=s{1:02d}e{2:02d}'.format('episode_id',db_rec['season_number'],db_rec['episode_number'])]
+                        except:
+                            pass
+                    try:
+                        if (int(db_rec['video_height']) >= 720):
+                            meta_opts = meta_opts + ['-metadata','{0}={1}'.format('hd_video',1)]
+                        else:
+                            meta_opts = meta_opts + ['-metadata','{0}={1}'.format('hd_video',0)]
+                    except:
+                        pass
+                    try:
+                        meta_opts = meta_opts + ['-metadata','{0}={1}'.format('network',db_rec['channel_sign'])]
+                    except:
+                        pass
+                    try:
+                        meta_opts = meta_opts + ['-metadata','{0}={1}'.format('genre',db_rec['genres_'])]
+                    except:
+                        pass
+                    try:
+                        meta_opts = meta_opts + ['-metadata','{0}={1}'.format('synopsis',db_rec['description'])]
+                    except:
+                        pass
+                    try:
+                        meta_opts = meta_opts + ['-metadata','{0}={1}'.format('description',db_rec['long_description'])]
+                    except:
+                        pass
+                    try:
+                        meta_opts = meta_opts + ['-metadata','{0}={1}'.format('comment',db_rec['long_description'])]
+                    except:
+                        pass
+
+                    # Add in the extra informational metadata
+                    transcoderopts['metadata'] = transcoderopts['metadata'] + meta_opts
+ 
+            if (transcoderopts['command'][0] == FFMPEG):
+                if (not options['noclobber']):
+                    transcoderopts['options'] = transcoderopts['options'] + ['-y']
+                if (options['truncate']):
+                    try:
+                        truncate_to = int(db_rec['video_duration']) - int(options['truncate'])
+                        transcoderopts['options'] = transcoderopts['options'] + ['-to',str(truncate_to)]
+                    except:
+                        pass
+
+            fext = transcoderopts['ext'][0]
+            outputfile = fq_filename + fext
+
+            # Structure of this is somewhat ffmpeg specific, but ok
+            transcoder_optsa = transcoderopts['command']
+            # threads needs to come first before input modifiers
+            if ('threads' in transcoderopts):
+                transcoder_optsa = transcoder_optsa + transcoderopts['threads']
+            if ('inputfile' in transcoderopts):
+                transcoder_optsa = transcoder_optsa + transcoderopts['inputfile']
+            if (options['ccaption'] and 'subtitlefile' in transcoderopts):
+                transcoder_optsa = transcoder_optsa + transcoderopts['subtitlefile']
+            if ('options' in transcoderopts):
+                transcoder_optsa = transcoder_optsa + transcoderopts['options']
+            if (options['ccaption'] and 'subtitleoptions' in transcoderopts):
+                transcoder_optsa = transcoder_optsa + transcoderopts['subtitleoptions']
+            if ('audiooptions' in transcoderopts):
+                transcoder_optsa = transcoder_optsa + transcoderopts['audiooptions']
+            if ('metadata' in transcoderopts):
+                transcoder_optsa = transcoder_optsa + transcoderopts['metadata']
+            transcoder_optsa = transcoder_optsa + [ outputfile ]
+
+            if (debug or not sys.stdout.isatty()):
+                print('')
+                print(transcoder_name)
+                print(transcoder_optsa)
+ 
+            # Step 5, Transcode ts data
+            # First check to see if it is an internal function to be called
+            if (transcoderopts['command'][0] in TRANSCODER_FUNCS):
+                # Remove command from rest of options
+                transcoder_optsa = transcoder_optsa[1:]
+                try:
+                    # Available external python module and func?
+                    mod_name, func_name = transcoderopts['command'][0].rsplit('.',1)
+                    mod = importlib.import_module(mod_name)
+                    func = getattr(mod, func_name)
+                    print(' Executing (' + transcoderopts['command'][0] + ', ' + fext + ')')
+                    func(*transcoder_optsa)
+                except:
+                    # Maybe we have a global defined func
+                    try:
+                        func = globals()[transcoderopts['command'][0]]
+                        # This was too verbose
+                        print(' Executing (' + transcoderopts['command'][0] + ', ' + fext + ')')
+                        func(*transcoder_optsa)
+                    except:
+                        printError('Cannot find allowed function [' + transcoderopts['command'][0] + ']')
+                        printError('Skipping...')
+                        continue
+            else:
+                if (not debug):
+                    ffmpegproc = subprocess.Popen(transcoder_optsa,stderr=subprocess.PIPE,stdout=devnull)
+                    # Might hardcode specific progress bars for specific transcoder programs
+                    #  Right now, this assumes the transcoder is ffmpeg
+                    if (transcoderopts['command'][0] == FFMPEG):
+                        ffmpeglen = int(db_rec['video_duration'])
+                        while True:
+                            ffmpegline = ffmpegproc.stderr.readline()
+                            if (not sys.stdout.isatty()):
+                                print(ffmpegline.strip())
+                            if (ffmpegline == '' or re.search(r'Press \[q\] to stop, \[\?\] for help', ffmpegline)):
+                                break
+ 
+                        bar_length=20
+                        ffmpeg_count = 1
+                        ffmpeg_seconds = 0
+                        tstart = timer()
+                        while True:
+                           # This is not perfect, output cannot be read
+                           #  by line.  So sometimes we cannot parse the time
+                           #  correctly and bar might go backwards.... it is ok.
+                           ffmpegline = ffmpegproc.stderr.read(88)
+                           if (ffmpegline == ''):
+                               break
+                           if (not sys.stdout.isatty()):
+                               print(ffmpegline.strip())
+                           # Check for match, and parse percentage
+                           ffmpegprogress = re.match(r'^.* time=(?P<hour>[0-9]+):(?P<minute>[0-9]+):(?P<second>[0-9]+).*', ffmpegline.strip())
+                           try:
+                               try:
+                                   fh = int(ffmpegprogress.group('hour'))
+                               except:
+                                   pass
+                               try:     
+                                   fm = int(ffmpegprogress.group('minute'))
+                               except:
+                                   pass
+                               try:
+                                   fs = int(ffmpegprogress.group('second'))
+                               except:
+                                   pass
+                               try:
+                                   ffmpeg_seconds = fh * 3600 + fm * 60 + fs
+                               except:
+                                   pass
+                               try:
+                                   if (sys.stdout.isatty()):
+                                       displayProgress(ffmpeg_seconds, ffmpeglen, bar_length, "{0:40s}".format(" Transcoding ({0}, {1}): ".format(transcoder_name,fext)))
+                               except:
+                                   pass
+                           except:
+                               pass
+                        # Force 100% progress, especially when --zapcommercials
+                        if (ffmpeg_seconds and sys.stdout.isatty()): 
+                            displayProgress(ffmpeglen, ffmpeglen, bar_length, "{0:40s}".format(" Transcoding ({0}, {1}): ".format(transcoder_name,fext)))
+                        tend = timer()
+                        print('Elapsed seconds ' + str(round(tend - tstart)))
+                    else:
+                        print(' Executing ' + ' '.join(transcoder_optsa))
+                        while True:
+                            ffmpegline = ffmpegproc.stderr.readline()
+                            print(ffmpegline.strip())
+                            if (ffmpegline == ''):
+                                break
+    finally:
+        # Clean up temporary files
+        if (not options['keepdir']):
+            try:
+                os.remove(ts_filename)
+            except:
+                pass
+        print('')
+
+
+def usage():
+    print(__doc__)
+
+try:
+    opts, args = getopt.getopt(sys.argv[1:], 'ncdCyvhtBzTIUPZo:s:i:k:q:b:f:E:S:Q:O:', ['noupdate','convert',
+        'debug','ccaption','clobber','version','help','transcodehelp','busyignore','zapcommercials',
+        'ts','ignorecase','nounwatched','noprotected','zerotv','options=','sortkeys=','rec_id=','keepdir=',
+        'query=','basedir=','filename=','episode=','season=','queryformat=','ccoffset='])
+except getopt.GetoptError:
+    usage()
+    sys.exit(2)
+
+search_pat = ''
+convert=False
+set_episode = ''
+set_season = ''
+basedir = ''
+filename_pat = ''
+transcoderopts = ''
+transcoder_names = TRANSCODER_DEFAULT
+search_rec_id = 0
+cc_offsets = ''
+debug = False
+# sortkeyslist needs to be a common meta key
+sortkeyslist = ['lair_date']
+isdecending = True
+options_str = ''
+for opt, arg in opts:
+    if opt in ('-n', '--noupdate'):
+        options['update'] = False
+    elif opt in ('-c', '--convert'):
+        convert = True
+    elif opt in ('-d', '--debug'):
+        debug = True
+    elif opt in ('-C', '--ccaption'):
+        if (not os.path.isfile(CCEXTRACTOR)):
+            printError('Warning: Cannot find ccextractor [' + CCEXTRACTOR + ']')
+            printError('Ignoring request for closed captions, ' + opt + ', as subtitles')
+        else:
+            options['ccaption'] = True
+    elif opt in ('-y', '--clobber'):
+        options['noclobber'] = False
+    elif opt in ('-v', '--version'):
+        print('Version: ' + SLT_GLOBAL['PGM_VERSION'])
+        sys.exit(0)
+    elif opt in ('-h', '--help'):
+        firstThings()
+        detailedHelp()
+        sys.exit(0)
+    elif opt in ('-t', '--transcodehelp'):
+        transcodeHelp()
+        sys.exit(0)
+    elif opt in ('-B', '--busyignore'):
+        options['busyignore'] = True
+    elif opt in ('-z', '--zapcommercials'):
+        options['nocommercials'] = 1
+    elif opt in ('-T', '--ts'):
+        options['existing_ts'] = True
+    elif opt in ('-I', '--ignorecase'):
+        options['ignorecase'] = re.IGNORECASE
+    elif opt in ('-U', '--nounwatched'):
+        options['nounwatched'] = True
+    elif opt in ('-P', '--noprotected'):
+        options['noprotected'] = True
+    elif opt in ('-Z', '--zerotv'):
+        options['no_zero_tv'] = False
+    elif opt in ('-o', '--options'):
+        options_str = arg
+    elif opt in ('-s', '--sortkeys'):
+        if (arg[0] == '-'):
+            arg = arg[1:]
+            isdecending=True
+        else:
+            isdecending=False
+        sortkeyslist = arg.split(',')
+    elif opt in ('-i', '--rec_id'):
+        search_rec_id = arg
+    elif opt in ('-k', '--keepdir'):
+        options['keepdir'] = arg
+    elif opt in ('-q', '--query'):
+        search_pat = arg
+    elif opt in ('-b', '--basedir'):
+        basedir = arg
+    elif opt in ('-f', '--filename'):
+        filename_pat = arg
+    elif opt in ('-E', '--episode'):
+        set_episode = arg
+    elif opt in ('-S', '--season'):
+        set_season = arg
+    elif opt in ('-Q', '--queryformat'):
+        options['queryformat'] = arg
+    elif opt in ('-F', '--transcoderopts'):
+        transcoderopts = arg
+    elif opt in ('-O', '--ccoffset'):
+        options['ccoffset'] = arg
+
+
+# First run, exit until user sets stuff up.
+if (TABLO_IPS[0] == '127.0.0.1'):
+    firstThings()
+    sys.exit(1)
+
+# Keep all if existing_ts specified
+if (options['existing_ts']):
+    options['keepdir'] = '@'
+
+if (options['nocommercials'] and options['ccaption']):
+    printError('Warning: Cannot use --zapcommercials together with --ccaption.')
+    printError('Ignoring request for closed captions as subtitles')
+    options['ccaption'] = False
+if (options['nocommercials'] and options['truncate']):
+    printError('Warning: Truncating a commercial zapped file could result in lost data at the end.')
+
+ 
+if (args):
+    # If the first character of a trancode name is '+', then 
+    #  make sure TRANSCODER_DEFAULT is added in.
+    newargs = []
+    for n in args:
+        add_default = False
+        if (n[0] == '+'):
+            n = n[1:]
+            add_default = True
+            newargs = newargs + TRANSCODER_DEFAULT 
+        if (n not in TRANSCODER_OPTS):
+            printError('No transcoder [' + n + '] found. Skipping.')
+            continue
+        else:
+            newargs = newargs + [ n ]
+    newset = set(newargs)
+    newargs = list(newset)
+    transcoder_names = newargs
+    if (not transcoder_names):
+        printError('No valid transcoder name provided.')
+        sys.exit(1)
+
+
+# If SURLATABLO_ROOT does not exist create it.
+get_tablo_root = os.path.expanduser(SURLATABLO_ROOT)
+if (not os.path.isdir(get_tablo_root)):
+    try:
+        os.mkdir(get_tablo_root)
+    except:
+        printError('Error: Could not create SURLATABLO_ROOT [' + SURLATABLO_ROOT + ']')
+        printError('(perhaps you need to change its value in your conf file)')
+        sys.exit(3)
+
+# name=value pairs separated by comma.  We simply add/replace these to options dictionary, no checking is done.
+#  Commas and equal signs as names or values will cause problems.
+if (options_str):
+    for option in  options_str.split(','):
+        try:
+            option_name, option_val = option.split('=')
+            # Note option_val is a string, we need to cast anywhere
+            #  it matters.  Can't cast a bool, so can't override those here
+            #  Changed options['postscript'] to empty string which is False.
+            #  Main reason this is here at all is to set postscript to some value
+            #  (any value will make it True).
+            options[option_name] = option_val
+        except:
+            pass
+
+if (options['nocommercials']):
+    options['nocommercials'] = options['zap_algorithm']
+
+basedirs=BASE_DIRS
+# Pattern: meta_type::pattern
+# Where meta_type could be TV, Movie, Sports, Manual
+#  If not supplied, then Default
+#  Could be Default:path, or could be meta_type:path,...
+#  Alters the base directory for recordings of type meta_type
+if (basedir):
+    for basetuple in basedir.split(','):
+        try:
+            meta_path = basetuple.split('::')[1]
+            meta_type = basetuple.split('::')[0]
+            # Weird, but could just have the colons
+            if (meta_path == '' and meta_type == ''):
+                meta_type = 'Default'
+            else:
+                if (meta_type == ''):
+                    meta_type = 'Default'
+        except:
+            meta_path = basetuple
+            meta_type = 'Default'
+        # Set the override
+        basedirs[meta_type] = meta_path
+
+filename_pats=FILENAME_PATS
+# Pattern: meta_type::pattern
+# Where meta_type could be TV, Movie, Sports, Manual
+#  If not supplied, then Default
+#  Could be Default:path, or could be meta_type:path,...
+#  Alters the output filename for recordings of type meta_type
+if (filename_pat):
+    for filenametuple in filename_pat.split(','):
+        try:
+            meta_path = filename_pat.split('::')[1]
+            meta_type = filename_pat.split('::')[0]
+            # Weird, but could just have the colons
+            if (meta_path == '' and meta_type == ''):
+                meta_type = 'Default'
+            else:
+                if (meta_type == ''):
+                    meta_type = 'Default'
+        except:
+            meta_path = filenametuple
+            meta_type = 'Default'
+        # Set the override
+        filename_pats[meta_type] = meta_path
+
+# Handle patterns of the form original_air_date~=1967
+#  as '"original_air_date": "1967'
+if (search_pat):
+    search_pat = transformSearch(search_pat)
+
+# Setup text wrapper
+wrapper = textwrap.TextWrapper()
+wrapper.initial_ident = options['wrapindent']
+wrapper.subsequent_indent = options['wrapsubindent']
+wrapper.width = options['wrapwidth'];
+
+# For sake of simplicity, a "tablo_ip" is a tablo IP
+for tablo_ip in TABLO_IPS:
+    # If tablo subdir, named for the tablo ip, does not exist create it.
+    tablo_dir = get_tablo_root + '/' + tablo_ip
+    if (not os.path.isdir(tablo_dir)):
+        os.mkdir(tablo_dir)
+
+    # cache file of recording ids
+    rec_ids_cache_file = tablo_dir + '/slt2_ids_cache.json'
+    rec_ids_url = Template(TABLO_REC_IDS).substitute(tablo_ip=tablo_ip)
+    # cache file of recording meta data
+    rec_ids_db_file = tablo_dir + '/slt2_ids_db.json'
+
+    # Load recording meta data cache
+    if (os.path.isfile(rec_ids_db_file)):
+        with open(rec_ids_db_file,'r') as f:
+            db_recs = json.loads('{' + f.read() + '}')
+    else:
+        db_recs = {}
+
+    # Default is to always update the cache unless --noupdate
+    if (options['update']):
+        # Get current known recording ids from tablo
+        jrec_ids = urllib2.urlopen(rec_ids_url)
+        jrec_str = jrec_ids.read()
+        jrec_str = '{ "ids":' + jrec_str + '}'
+        rec_ids = json.loads(jrec_str)
+        jrec_ids.close()
+
+        # Get recording ids from last run cache file
+        #  and try to figure out things to add and things to delete from cache
+        if (os.path.isfile(rec_ids_cache_file)):
+            with open(rec_ids_cache_file, 'r') as f:
+                oldrec_ids = json.load(f)
+        else:
+            # You can erase the rec_ids_cache_file and force creation from scratch of recording
+            #  meta data db
+            oldrec_ids = {'ids':[]}
+    
+        # Find new rec_ids and perhaps removed ones
+        oldrec_ids_set = set(oldrec_ids['ids'])
+        newrec_ids_set = set(rec_ids['ids'])
+        new_ids = [aa for aa in newrec_ids_set if aa not in oldrec_ids_set]
+        removed_ids = [aa for aa in oldrec_ids_set if aa not in newrec_ids_set]
+    
+        # Now let us loop through removed_ids (things deleted off the Tablo)  
+        #  and remove them from the cache db
+        first = True
+        for remove_id in removed_ids:
+            remove_id_s = remove_id
+            print('Trying to remove ' + remove_id_s)
+            try:
+                if (first):
+                    if (options['formatted_remove']):
+                        print(doFormat(options['removeformat'],db_recs[remove_id_s],'string'))
+                    else:
+                        print(re.sub('^','REMOVED:',json.dumps(db_recs[remove_id_s], sort_keys=True, indent=4),0,re.M))
+
+                    first = False
+                else:
+                    if (options['formatted_remove']):
+                        print(doFormat(options['removeformat'],db_recs[remove_id_s],'string'))
+                    else:
+                        print('REMOVED:,\n' + re.sub('^','REMOVED:',json.dumps(db_recs[remove_id_s], sort_keys=True, indent=4),0,re.M))
+                del db_recs[remove_id_s]
+            except:
+                print('Warning: Could not find rec_id: ' + remove_id_s)
+                print('Probably "Live TV" gone away.')
+    
+        # Loop through and preserve known db_recs from the existing cache db first
+        #  This may look weird, but this puts a record on one line, so the db is greppable.
+        for rec_id in db_recs:
+            if not 'records' in locals():
+                records = '"' + rec_id + '": ' + json.dumps(db_recs[rec_id])
+            else:
+                records = records + ",\n" + '"' + rec_id + '": ' + json.dumps(db_recs[rec_id])
+ 
+
+        # Gather meta data for recordings we don't know about
+        for new_id in new_ids:
+            new_data_url = Template(TABLO_REC_INFO).substitute(tablo_ip=tablo_ip)
+            try:
+                new_data_json = urllib2.urlopen(new_data_url.format(new_id))
+                new_data_meta = json.load(new_data_json)
+                new_data_json.close()
+            except:
+                print('No meta for rec_id ' + new_id + '. Probably "Live TV".')
+                continue
+            # Determine meta_type from id (path)
+            meta_type = getMetaType(new_id)
+            rec_val={}
+            rec_val['meta_type'] = meta_type
+            rec_val['rec_id'] = getRecId(new_id)
+            rec_val['path'] = new_id.encode('utf-8').strip()
+            rec_val['tablo_ip'] = tablo_ip
+
+            # All types have airing_details
+            rec_val['channel_sign'] = new_data_meta['airing_details']['channel']['channel']['call_sign'].encode('utf-8').strip()
+            try:
+                rec_val['channel_affiliate'] = new_data_meta['airing_details']['channel']['channel']['network'].encode('utf-8').strip()
+            except:
+                rec_val['channel_affiliate'] = ''
+            rec_val['channel_num'] = str(new_data_meta['airing_details']['channel']['channel']['major']) + '.' + str(new_data_meta['airing_details']['channel']['channel']['minor']);
+            # Use channel_resolution(new) to try to compute values
+            rec_val['channel_resolution'] = new_data_meta['airing_details']['channel']['channel']['resolution'].encode('utf-8').strip()
+            if (rec_val['channel_resolution'] == 'sd'):
+                rec_val['channel_res_name'] = '480i'
+                rec_val['channel_res_width'] = '720'
+                rec_val['channel_res_height'] = '480'
+            elif (rec_val['channel_resolution'] == 'hd_720'):
+                rec_val['channel_res_name'] = '720p'
+                rec_val['channel_res_width'] = '1280'
+                rec_val['channel_res_height'] = '720'
+            elif (rec_val['channel_resolution'] == 'hd_1080'):
+                rec_val['channel_res_name'] = '1080i'
+                rec_val['channel_res_width'] = '1920'
+                rec_val['channel_res_height'] = '1080'
+            else:
+                rec_val['channel_res_name'] = 'Unknown'
+                rec_val['channel_res_width'] = '720'
+                rec_val['channel_res_height'] = '480'
+            try:
+                rec_val['air_date'] = new_data_meta['airing_details']['datetime'].encode('utf-8').strip()
+            except:
+                rec_val['air_date'] = '1900-01-01T00:00Z'
+
+            # Load air_date as a datetime so we can get individual values
+            if (has_pytz):
+                uair_datetime = datetime.strptime(rec_val['air_date'], '%Y-%m-%dT%H:%MZ').replace(tzinfo=pytz.utc)
+            else:
+                uair_datetime = datetime.strptime(rec_val['air_date'], '%Y-%m-%dT%H:%MZ').replace(tzinfo=utc)
+            rec_val['air_date_year'] = '{0:04d}'.format(uair_datetime.year)
+            rec_val['air_date_month'] = '{0:02d}'.format(uair_datetime.month)
+            rec_val['air_date_day'] = '{0:02d}'.format(uair_datetime.day)
+            rec_val['air_date_hour'] = '{0:02d}'.format(uair_datetime.hour)
+            rec_val['air_date_minute'] = '{0:02d}'.format(uair_datetime.minute)
+            rec_val['air_date_string'] = uair_datetime.strftime('%Y-%m-%d %H:%M')
+            rec_val['air_date_year_day'] = uair_datetime.strftime('%j')
+            if (has_pytz):
+                # Create local timezone converted air_date (lair_date) entries 
+                ltz = pytz.timezone(LOCAL_TIMEZONE)
+            else:
+                ltz = timezone[LOCAL_TIMEZONE]
+            lair_datetime = uair_datetime.astimezone(ltz)
+            rec_val['lair_date_tz'] = str(lair_datetime.tzinfo)
+            rec_val['lair_date'] = lair_datetime.strftime('%Y-%m-%dT%H:%M%z')
+            rec_val['lair_date_year'] = '{0:04d}'.format(lair_datetime.year)
+            rec_val['lair_date_month'] = '{0:02d}'.format(lair_datetime.month)
+            rec_val['lair_date_day'] = '{0:02d}'.format(lair_datetime.day)
+            rec_val['lair_date_hour'] = '{0:02d}'.format(lair_datetime.hour)
+            rec_val['lair_date_minute'] = '{0:02d}'.format(lair_datetime.minute)
+            rec_val['lair_date_string'] = lair_datetime.strftime('%Y-%m-%d %H:%M')
+            rec_val['lair_date_year_day'] = lair_datetime.strftime('%j')
+      
+            # All types have video_details
+            rec_val['video_size'] = new_data_meta['video_details']['size']
+            rec_val['video_sizeh'] = humanizeValue(rec_val['video_size'])
+            rec_val['video_width'] = new_data_meta['video_details']['width']
+            rec_val['video_height'] = new_data_meta['video_details']['height']
+            rec_val['video_duration'] = new_data_meta['video_details']['duration']
+            rec_val['video_offsetstart'] = new_data_meta['video_details']['schedule_offsets']['start']
+            rec_val['video_offsetend'] = new_data_meta['video_details']['schedule_offsets']['end']
+            rec_val['video_state'] = new_data_meta['video_details']['state'].encode('utf-8').strip()
+            # video_time human readable
+            totalseconds = rec_val['video_duration']
+            hours = int(totalseconds / 3600)
+            minutes = int((totalseconds - hours * 3600) / 60)
+            seconds = int(totalseconds - hours * 3600 - minutes * 60)
+            rec_val['video_durationh'] = "{0:d}:{1:02d}:{2:02d}".format(hours,minutes,seconds)
+            try:
+                rec_val['qualifiers_'] = ';'.join(new_data_meta['qualifiers']).encode('utf-8').strip()
+            except:
+                rec_val['qualifiers_'] = ''
+            rec_val['lang'] = 'en'
+            # genres becomes genres_ it shall return at least for a bit
+            rec_val['genres_'] = ''
+    
+            # Begin specific path collection
+            if (rec_val['meta_type'] == 'TV'):
+                title_has_lair_date = False
+                # Another very very valuable piece of meta data bites the dust!
+                #  And yet, they preserved the original air date for the season!!??!!????
+                #  which is pretty worthless, best to leave the original air date
+                #  as garbage... sigh...
+                rec_val['original_air_date'] = '1900-01-01'
+                oad = datetime.strptime(rec_val['original_air_date'], '%Y-%m-%d')
+                rec_val['original_air_date_year'] = '{0:04d}'.format(oad.year)
+                rec_val['original_air_date_month'] = '{0:02d}'.format(oad.month)
+                rec_val['original_air_date_day'] = '{0:02d}'.format(oad.day)
+
+                try:
+                    rec_val['episode_number'] = new_data_meta['episode']['number']
+                except:
+                    rec_val['episode_number'] = -1
+                try:
+                    rec_val['tms_id'] = new_data_meta['episode']['tms_id'].encode('utf-8').strip()
+                except:
+                    rec_val['tms_id'] = ''
+                try:
+                    rec_val['description'] = new_data_meta['episode']['description'].encode('utf-8').strip()
+                except:
+                    rec_val['description'] = ''
+                try:
+                    rec_val['title'] = new_data_meta['episode']['title'].encode('utf-8').strip()
+                except:
+                    if (options['titles_from_description']):
+                        try:
+                            tmatch = re.match(r'^(?P<title>[^,;]*).*', rec_val['description'])
+                            proposed_title = tmatch.group('title')
+                            rec_val['title'] = (proposed_title[:options['titles_from_description_max']] + '...') if len(proposed_title) > options['titles_from_description_max'] else proposed_title
+                            rec_val['title'] = rec_val['title'] + ' ' + rec_val['lair_date_string']
+                        except:
+                            rec_val['title'] = rec_val['lair_date_string']
+                    else:
+                        rec_val['title'] = rec_val['lair_date_string']
+                    title_has_lair_date = True
+                rec_val['long_description'] = rec_val['description']
+                rec_val['series_path'] = new_data_meta['series_path'].encode('utf-8').strip()
+                rec_val['season_path'] = new_data_meta['season_path'].encode('utf-8').strip()
+                series_data_url = Template(TABLO_REC_INFO).substitute(tablo_ip=tablo_ip)
+                try:
+                    series_data_json = urllib2.urlopen(series_data_url.format(rec_val['series_path']))
+                    series_data_meta = json.load(series_data_json)
+                    series_data_json.close()
+                    try:
+                      rec_val['series'] = series_data_meta['series']['title'].encode('utf-8').strip()
+                    except:
+                      rec_val['series'] = 'Unknown'
+                    try:
+                        rec_val['cast_'] = ';'.join(series_data_meta['series']['cast']).encode('utf-8').strip()
+                    except:
+                        rec_val['cast_'] = ''
+                except:
+                    rec_val['series'] = 'Unknown'
+                    rec_val['cast_'] = ''
+                    pass
+                season_data_url = Template(TABLO_REC_INFO).substitute(tablo_ip=tablo_ip)
+                try:
+                    season_data_json = urllib2.urlopen(season_data_url.format(rec_val['season_path']))
+                    season_data_meta = json.load(season_data_json)
+                    season_data_json.close()
+                    try:
+                        rec_val['season_number'] = season_data_meta['season']['number']
+                    except:
+                        rec_val['season_number'] = -1
+                except:
+                    rec_val['season_number'] = -1
+                    pass
+                #if (options['no_zero_tv']):
+                #    # Why not original_air_date values? 
+                #    #  (well for one thing, thanks to Nuvyyo, we don't have that anymore)
+                #    #  For whatever reason, programs without
+                #    #  seasons and episodes, like New programs have a constant (and old) date
+                #    #  assigned as the original_air_date.  We want original_air_date values here
+                #    #  ideally though, just that they are incorrect in many cases.
+                #    if (not rec_val['season_number']):
+                #        rec_val['season_number'] = int(rec_val['lair_date_year'])
+                #    if (not rec_val['episode_number']):
+                #        # Thus if not season it's the year of the recording, if no episode it's the integer of day of the year
+                #        #  e.g. if recorded on 2016-12-25, s2016e360
+                #        #  These are usually "specials"
+                #        rec_val['episode_number'] = int(rec_val['lair_date_year_day'] + rec_val['lair_date_hour'] + rec_val['lair_date_minute'])
+                #        # Adjust title to have lair_date
+                #        if (not title_has_lair_date):
+                #            rec_val['title'] = rec_val['title'] + ' ' + rec_val['lair_date_string']
+                if (rec_val['season_number'] >= 0 and rec_val['episode_number'] >= 0):
+                    if (rec_val['title'] == 'Unknown'):
+                        #if (options['no_zero_tv']):
+                        #    rec_val['title'] = 'Episode ' + rec_val['lair_date_year'] + '-' + rec_val['lair_date_month'] + '-' + rec_val['lair_date_day']
+                        #else:
+                        rec_val['title'] = 'Episode ' + str(rec_val['episode_number'])
+                    rec_val['friendly_title'] = rec_val['series'] + ' - ' + 's{0:02d}e{1:02d}'.format(rec_val['season_number'],rec_val['episode_number']) + ' - ' + rec_val['title']
+                else:
+                    rec_val['friendly_title'] = rec_val['series'] + ' - ' + rec_val['title']
+            elif (rec_val['meta_type'] == 'Movie'):
+                rec_val['movie_path'] = new_data_meta['movie_path'].encode('utf-8').strip()
+                movie_data_url = Template(TABLO_REC_INFO).substitute(tablo_ip=tablo_ip)
+                try:
+                    movie_data_json = urllib2.urlopen(movie_data_url.format(rec_val['movie_path']))
+                    movie_data_meta = json.load(movie_data_json)
+                    movie_data_json.close()
+                    rec_val['title'] = movie_data_meta['movie']['title'].encode('utf-8').strip()
+                    rec_val['description'] = movie_data_meta['movie']['plot'].encode('utf-8').strip()
+                    rec_val['long_description'] = rec_val['description']
+                    try:
+                        rec_val['release_year'] = movie_data_meta['movie']['release_year']
+                    except:
+                        rec_val['release_year'] = 0
+                    try:
+                        rec_val['cast_'] = ';'.join(movie_data_meta['movie']['cast']).encode('utf-8').strip()
+                    except:
+                        rec_val['cast_'] = ''
+                    try:
+                        rec_val['rating'] = movie_data_meta['movie']['film_rating'].encode('utf-8').strip()
+                    except:
+                        rec_val['rating'] = 'Unknown'
+                except:
+                    rec_val['title'] = 'Unknown'
+                    rec_val['description'] = 'Unknown'
+                    rec_val['long_description'] = 'Unknown'
+                    rec_val['release_year'] = 0
+                    rec_val['cast_'] = ''
+                    rec_val['rating'] = 'Unknown'
+                    pass
+                try:
+                    rec_val['tms_id'] = new_data_meta['movie_airing']['tms_id'].encode('utf-8').strip()
+                except:
+                    rec_val['tms_id'] = ''
+                try:
+                    rec_val['friendly_title'] = rec_val['title'] + ' (' + str(rec_val['release_year']) + ')'
+                except:
+                    rec_val['friendly_title'] = rec_val['title']
+            elif (rec_val['meta_type'] == 'Sports'):
+                rec_val['game_date'] = rec_val['lair_date_year'] + '-' + rec_val['lair_date_month'] + '-' + rec_val['lair_date_day']
+                gd = datetime.strptime(rec_val['game_date'], '%Y-%m-%d')
+                rec_val['game_date_year'] = '{0:04d}'.format(gd.year)
+                rec_val['game_date_month'] = '{0:02d}'.format(gd.month)
+                rec_val['game_date_day'] = '{0:02d}'.format(gd.day)
+                # Really do not have episodes (without help), so defaults to zero, 0
+                rec_val['episode_number'] = 0
+                try:
+                    rec_val['season'] = new_data_meta['event']['season'].encode('utf-8').strip()
+                except:
+                    rec_val['season'] = ''
+                try:
+                    rec_val['season_number'] = int(rec_val['season'].split('-')[0])
+                except:
+                    # this is not accurate, game_date is another piece of meta data
+                    #  removed by Nuvyyo
+                    rec_val['season_number'] = rec_val['game_date_year']
+                try:
+                    rec_val['season_type'] = new_data_meta['event']['season_type'].encode('utf-8').strip()
+                except:
+                    rec_val['season_type'] = ''
+                try:
+                    rec_val['tms_id'] = new_data_meta['event']['tms_id'].encode('utf-8').strip()
+                except:
+                    rec_val['tms_id'] = ''
+                teamnames = []
+                try:
+                    teams = new_data_meta['event']['teams']
+                except:
+                    teams = []
+                try:
+                    for team in teams:
+                        teamnames.append(team['name'].encode('utf-8').strip())
+                    rec_val['teams_'] = ';'.join(teamnames).encode('utf-8').strip()
+                except:
+                    rec_val['teams_'] = ''
+                rec_val['cast_'] = rec_val['teams_']
+                rec_val['home_team'] = ''
+                try:
+                    for team in teams:
+                        if (team['team_id'] == new_data_meta['event']['home_team_id']):
+                            rec_val['home_team'] = team['name'].encode('utf-8').strip()
+                except:
+                    pass
+                rec_val['sport_path'] = new_data_meta['sport_path'].encode('utf-8').strip()
+                sports_data_url = Template(TABLO_REC_INFO).substitute(tablo_ip=tablo_ip)
+                try:
+                    sports_data_json = urllib2.urlopen(sports_data_url.format(rec_val['sport_path']))
+                    sports_data_meta = json.load(sports_data_json)
+                    sports_data_json.close()
+                    try:
+                        rec_val['sport_type'] = sports_data_meta['sport']['title'].encode('utf-8').strip()
+                    except:
+                        rec_val['sport_type'] = 'Unknown ' + rec_val['rec_id']
+                except:
+                    rec_val['sport_type'] = 'Unknown ' + rec_val['rec_id']
+                try:
+                    rec_val['title'] = new_data_meta['event']['title'].encode('utf-8').strip()
+                except:
+                    rec_val['title'] = rec_val['sport_type'] + ' ' + rec_val['lair_date_string']
+                if (rec_val['season']):
+                    rec_val['friendly_title'] = rec_val['title'] + ' (' + rec_val['season'] + ')'
+                else:
+                    rec_val['friendly_title'] = rec_val['title']
+                rec_val['description'] = rec_val['sport_type'] + ' - ' + rec_val['title']
+                rec_val['long_description'] = rec_val['description']
+            elif (rec_val['meta_type'] == 'Manual'):
+                rec_val['program_path'] = new_data_meta['program_path'].encode('utf-8').strip()
+                program_data_url = Template(TABLO_REC_INFO).substitute(tablo_ip=tablo_ip)
+                try:
+                    program_data_json = urllib2.urlopen(program_data_url.format(rec_val['program_path']))
+                    program_data_meta = json.load(program_data_json)
+                except:
+                    pass
+                try:
+                    rec_val['title'] = program_data_meta['program']['title'].encode('utf-8').strip()
+                except:
+                    rec_val['title'] = 'Unknown ' + rec_val['rec_id']
+                rec_val['friendly_title'] = rec_val['title']
+                rec_val['description'] = rec_val['title']
+                rec_val['long_description'] = rec_val['description']
+                rec_val['tms_id'] = 'N/A'
+            try:
+                rec_val['sort_title'] = sortTitle(rec_val['title'])
+            except:
+                pass
+
+            # If a recording is not in the finished state, then skip and forget it
+            try:
+                # Skip if not finished recording
+                if (rec_val['video_state'] != 'finished' and not options['busyignore']):
+                    rec_ids['ids'].remove(new_id)
+                    print('  *RECORDING/BUSY* ' + rec_val['friendly_title'])
+                    continue
+            except:
+                # Safety valve, not sure what would cause this though
+                #  maybe brief condition?
+                rec_ids['ids'].remove(new_id)
+                print('  *UNKNOWN STATE* ' + rec_val['friendly_title'])
+                continue
+
+            # friendly_title is just used for output when adding to the db
+            print('  ' + rec_val['friendly_title'])
+
+            # This may look weird, but this puts a record on one line, so the db is greppable.
+            rec_val = json.dumps(rec_val)
+            if not 'records' in locals():
+                records = '"' + new_id + '": ' + rec_val
+            else:
+                records = records + ',\n' + '"' + new_id + '": ' + rec_val
+
+
+    if 'records' in locals():
+        with open(rec_ids_db_file, 'w') as f:
+            f.write(records)
+        del records
+
+    # Save current recording ids to use as difference in next run
+    if 'rec_ids' in locals():
+        with open(rec_ids_cache_file, 'w') as f:
+            json.dump(rec_ids, f)
+
+    # Messy shortcut, reread db_recs.
+    if (os.path.isfile(rec_ids_db_file)):
+        with open(rec_ids_db_file,'r') as f:
+            db_recs = json.loads('{' + f.read() + '}')
+    else:
+        db_recs = []
+
+    # Maybe we know exactly what we want.
+    if (search_rec_id):
+        path = ''
+        search_data = {}
+        search_data_url = Template(TABLO_REC_INFO).substitute(tablo_ip=tablo_ip)
+        try:
+            # Try a full path given like /recordings/series/episodes/910399
+            search_data_json = urllib2.urlopen(search_data_url.format(search_rec_id))
+            search_data[path] = json.load(search_data_json)
+            search_data_json.close()
+        except:
+            # Try just a number against all types
+            try:
+                # TV
+                path = '/recordings/series/episodes/' + str(search_rec_id)
+                search_data_json = urllib2.urlopen(search_data_url.format(path))
+                search_data[path] = json.load(search_data_json)
+                search_data_json.close()
+                try:
+                    series_path = search_data[path]['series_path']
+                    search_data_json = urllib2.urlopen(search_data_url.format(series_path))
+                    search_data[series_path] = json.load(search_data_json)
+                    search_data_json.close()
+                except:
+                    pass
+                try:
+                    season_path = search_data[path]['season_path']
+                    search_data_json = urllib2.urlopen(search_data_url.format(season_path))
+                    search_data[season_path] = json.load(search_data_json)
+                    search_data_json.close()
+                except:
+                    pass
+            except:
+                try:
+                    # Movie
+                    path = '/recordings/movies/airings/' + str(search_rec_id)
+                    search_data_json = urllib2.urlopen(search_data_url.format(path))
+                    search_data[path] = json.load(search_data_json)
+                    search_data_json.close()
+                    try:
+                        movie_path = search_data[path]['movie_path']
+                        search_data_json = urllib2.urlopen(search_data_url.format(movie_path))
+                        search_data[movie_path] = json.load(search_data_json)
+                        search_data_json.close()
+                    except:
+                        pass
+                except:
+                    try:
+                        # Sports
+                        path = '/recordings/sports/events/' + str(search_rec_id)
+                        search_data_json = urllib2.urlopen(search_data_url.format(path))
+                        search_data[path] = json.load(search_data_json)
+                        search_data_json.close()
+                        try:
+                            sport_path = search_data[path]['sport_path']
+                            search_data_json = urllib2.urlopen(search_data_url.format(sport_path))
+                            search_data[sport_path] = json.load(search_data_json)
+                            search_data_json.close()
+                        except:
+                            pass
+                    except:
+                        try:
+                            # Manual
+                            path = '/recordings/programs/airings/' + str(search_rec_id)
+                            search_data_json = urllib2.urlopen(search_data_url.format(path))
+                            search_data[path] = json.load(search_data_json)
+                            search_data_json.close()
+                            try:
+                                program_path = search_data[path]['program_path']
+                                search_data_json = urllib2.urlopen(search_data_url.format(program_path))
+                                search_data[program_path] = json.load(search_data_json)
+                                search_data_json.close()
+                            except:
+                                pass
+                        except:
+                            pass
+        for sd in search_data:
+            print('"' + sd + '": ' + json.dumps(search_data[sd], sort_keys=True, indent=4, encoding=termenc) + ',')
+        if (convert):
+            # Fall through, we have search_pat and convert
+            search_pat=transformSearch("rec_id~=" + str(getRecId(search_rec_id)))
+
+    # Attempt search (and optionally convert) if provided
+    #  Note, doing --noupdate without --query=search_pat  does nothing at all
+    sortlist=[]
+    restlist=[]
+    if (search_pat):
+        first = True
+        do_once=[]
+        for rec_id in db_recs:
+            # I am basically grepping through a full metadata line, maybe that
+            #  is not the best way to do this (?) or maybe it is.
+            record_s = json.dumps(db_recs[rec_id])
+            if (re.search(search_pat, record_s, flags = options['ignorecase'])):
+                # Now loop through sort keys and only allow records where we have sort keys
+                allgood = True
+                for keymeta in sortkeyslist:
+                    if keymeta not in db_recs[rec_id]:
+                        allgood = False
+                        break
+                if (allgood):
+                    sortlist += [db_recs[rec_id]]
+                else:
+                    # records lacking one or more sort keys are tossed out (sorta).
+                    restlist += [db_recs[rec_id]]
+
+        if 'sortlist' in locals():
+            for sl in sltSortedList(sortlist, isdecending, *sortkeyslist):
+                if (options['nounwatched'] or options['noprotected']):
+                    # This is expensive
+                    sl_url = Template(TABLO_REC_INFO).substitute(tablo_ip=tablo_ip)
+                    try:
+                        sl_data_json = urllib2.urlopen(sl_url.format(sl['path']))
+                        sl_data_meta = json.load(sl_data_json)
+                        sl_data_json.close()
+                        if (options['nounwatched']):
+                            if (sl_data_meta['user_info']['watched'] != True):
+                                continue
+                        if (options['noprotected']):
+                            if (sl_data_meta['user_info']['protected'] != False):
+                                continue
+                    except:
+                        pass
+
+                rec_id = sl['rec_id']
+                if (options['queryformat']):
+                    try:
+                        doFormat(options['queryformat'], sl, '')
+                    except:
+                        # Failsafe
+                        print(rec_id)
+                elif (not convert):
+                    if (first):
+                        print('"' + sl['path'] + '": ' + json.dumps(sl, sort_keys=True, indent=4))
+                        first = False
+                    else:
+                        print(',\n' + '"' + sl['path'] + '": ' + json.dumps(sl, sort_keys=True, indent=4))
+                if (convert):
+                    meta_type = sl['meta_type']
+                    # If Sports and we have a set_episode start num, for each
+                    #  sport_type, save records and output later. 
+                    #  Why?  I am making up metadata possibly for episode and season.
+                    #  This way I can order sport events by game_date, and I will
+                    #  assume that I can increment the episode_number by one for each
+                    #  sport_type.
+                    if (meta_type == 'Sports' and (set_episode != '' or set_season != '')):
+                        #game_date = sl['game_date']
+                        sports_tms_id = sl['tms_id']
+                        sport_type = sl['sport_type']
+                        # Sport program of each sport_type sorted by sports_tms_id ascending
+                        #  so we can make up episode numbers incrementally if more than
+                        #  one for a sport_type.
+                        try:
+                            sport_recs[sport_type][sports_tms_id + str(rec_id)]=sl
+                        except:
+                            try:
+                                sport_recs[sport_type]={sports_tms_id: sl}
+                            except:
+                                sport_recs={sport_type: {sports_tms_id: sl}}
+                    elif (meta_type == 'TV' and (set_episode != '' or set_season != '')):
+                        #orig_air_date = sl['original_air_date']
+                        tv_tms_id = sl['tms_id']
+                        series_name = sl['series']
+                        # TV programs of each series name sorted by tv_tms_id ascending
+                        #  so we can make up/override episode numbers incrementally if more
+                        #  than one for a series.
+                        try:
+                            tv_recs[series_name][tv_tms_id + str(rec_id)]=sl
+                        except:
+                            try:
+                                tv_recs[series_name]={tv_tms_id: sl}
+                            except:
+                                tv_recs={series_name: {tv_tms_id: sl}}
+                    else:
+                        doConvert(sl, options, basedirs, filename_pats, transcoder_names)
+        # If we have sport_recs, dump them out using set_episode counters for each type
+        #  Lots of of assumptions.  Basically we are making up meta data that does not exist!
+        if 'sport_recs' in locals() or 'tv_recs' in locals():
+            # If we have set_season, could be Default:name, or could be sport_type/series_name:name,...
+            seasonoverride={'Default':''}
+            for sseasontuple in set_season.split(','):
+                try:
+                    sname = sseasontuple.split('::')[1]
+                    stype = sseasontuple.split('::')[0]
+                    # Weird, but could just have the colons
+                    if (sname == '' and stype == ''):
+                        stype = 'Default'
+                    else:
+                        if (stype == ''):
+                            stype = 'Default'
+                except:
+                    sname = sseasontuple
+                    stype = 'Default'
+                # Set the override
+                seasonoverride[stype] = sname
+            # If we have set_episode, could be Default:strnum, or could be sport_type/series_name:strnum,...
+            episodeoverride={'Default':'1'}
+            for sepisodetuple in set_episode.split(','):
+                try:
+                    estart = sepisodetuple.split('::')[1]
+                except:
+                    estart = ''
+                stype=sepisodetuple.split('::')[0]
+                if (estart == ''):
+                    estart = stype
+                    stype = 'Default'
+                else:
+                    if (stype == ''):
+                        stype = 'Default'
+                if (estart == ''):
+                    estart = '1'
+                episodeoverride[stype] = estart
+            if 'sport_recs' in locals():
+                for sport_type in sport_recs:
+                    sport_rec=sport_recs[sport_type]
+                    # If no specific sport_type override, use Default global ones
+                    try:
+                        e = int(episodeoverride[sport_type])
+                    except:
+                        try:
+                            e = int(episodeoverride['Default'])
+                        except:
+                            printError('Error: non-numeric value supplied for episode number')
+                            sys.exit(3)
+                    try:
+                        sname = seasonoverride[sport_type]
+                    except:
+                        sname = seasonoverride['Default']
+                    for sports_tms_id in sorted(sport_rec):
+                        srec=sport_rec[sports_tms_id]
+                        srec_id=srec['rec_id']
+                        if (not sname):
+                            #s = int(game_date.split('-')[0])
+                            s = srec['season_number']
+                        else:
+                            try:
+                                s = int(sname)
+                            except:
+                                s = 1
+                        options['season_number'] = s
+                        options['episode_number'] = e
+                        doConvert(db_recs[srec['path']], options, basedirs, filename_pats, transcoder_names)
+                        e+=1
+            elif 'tv_recs' in locals():
+                for series_name in tv_recs:
+                    tv_rec=tv_recs[series_name]
+                    # If no specific series_name override, just convert
+                    try:
+                        e = int(episodeoverride[series_name])
+                    except:
+                        pass
+                    try:
+                        sname = seasonoverride[series_name]
+                    except:
+                        pass
+
+                    for tv_tms_id in sorted(tv_rec):
+                        srec=tv_rec[tv_tms_id]
+                        srec_id=srec['rec_id']
+                        try:
+                            s = int(sname)
+                            options['season_number'] = s
+                        except:
+                            pass
+                        try:
+                            options['episode_number'] = e
+                        except:
+                            pass
+                        try:
+                            options['friendly_title'] = series_name + ' - ' + 's{0:02d}e{1:02d}'.format(s,e) + ' - ' + db_recs[str(srec_id)]['title']
+                        except:
+                            pass
+                        doConvert(db_recs[srec['path']], options, basedirs, filename_pats, transcoder_names)
+                        try:
+                            e+=1
+                        except:
+                            pass
+    
+sys.stderr.flush()
+sys.stdout.flush()
+sys.exit()
