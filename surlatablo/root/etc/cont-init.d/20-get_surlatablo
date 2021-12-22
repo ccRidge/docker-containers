@@ -20,6 +20,7 @@ mkdir -p $dSCRIPTS $dCONF
 cp /defaults/config/conf/surlatablo2.conf /config/conf/surlatablo2.conf
 cp /defaults/config/scripts/cpFromTablo.py /config/scripts/cpFromTablo.py
 cp /defaults/config/scripts/$sVERSION /config/scripts/surlatablo.py
+chmod +x /config/scripts/surlatablo.py
 
 # Handle passing in IP address of a single Tablo as container variable
 if [ -n "$TABLO_IP" ]; then 
