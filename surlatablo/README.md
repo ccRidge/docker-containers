@@ -3,17 +3,9 @@
 ##### summary:
 Dockerized surlatablo for querying and converting media from a Tablo device (OTA PVR and streaming) to be used by Plex Media Server
 
-Docker run comand to use most recent surlatablo.py version:
+Docker run comand:
 ```
 docker run -d --name="surlatablo" --net="bridge" -v "/path/to/surlatablo/config":"/config":rw -v "/path/to/surlatablo/data":"/data":rw -v "/path/to/surlatablo/transcode":"/transcode":rw -v /etc/localtime:/etc/localtime:ro ccridge/surlatablo
-```
-Docker run comand to specify a surlatablo.py version:
-```
-docker run -d --name="surlatablo" --net="bridge" -e VERSION="surlatablo-1.2-py.txt" -v "/path/to/surlatablo/config":"/config":rw -v "/path/to/surlatablo/data":"/data":rw -v "/path/to/surlatablo/transcode":"/transcode":rw -v /etc/localtime:/etc/localtime:ro ccridge/surlatablo
-```
-Docker run command to run without updating surlatablo.py version:
-```
-docker run -d --name="surlatablo" --net="bridge" -e VERSION="noupdate" -v "/path/to/surlatablo/config":"/config":rw -v "/path/to/surlatablo/data":"/data":rw -v "/path/to/surlatablo/transcode":"/transcode":rw -v /etc/localtime:/etc/localtime:ro ccridge/surlatablo
 ```
 
 ##### description:
