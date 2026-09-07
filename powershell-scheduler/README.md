@@ -320,4 +320,4 @@ The image is built locally rather than pulled from a third-party Docker registry
 
 ## License
 
-[Choose a license for this project.]
+This project is licensed under the MIT License. See the LICENSE file for the full license text.
