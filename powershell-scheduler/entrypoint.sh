@@ -31,42 +31,54 @@ echo "  Current time:    $(date '+%Y-%m-%d %H:%M:%S %Z %z')"
 echo
 echo "Checking configuration..."
 
-if [ ! -f /config/crontab ]; then
-    echo "ERROR: /config/crontab does not exist."
-    echo
-    echo "Create:"
-    echo "  /mnt/user/appdata/docker/powershell-scheduler/config/crontab"
-    echo
-    exit 1
-fi
+for DIR in /config /scripts /logs; do
+    if [ ! -d "$DIR" ]; then
+        echo "ERROR: Required directory does not exist: $DIR"
+        exit 1
+    fi
+done
 
-if [ ! -d /scripts ]; then
-    echo "ERROR: /scripts does not exist."
-    exit 1
-fi
+for INTERVAL in minute hourly daily weekly monthly; do
+    if [ ! -d "/scripts/$INTERVAL" ]; then
+        echo "Creating script directory: /scripts/$INTERVAL"
+        mkdir -p "/scripts/$INTERVAL"
+    fi
+done
 
-if [ ! -d /logs ]; then
-    echo "ERROR: /logs does not exist."
-    exit 1
-fi
+# ============================================================
+# Configure anacron
+# ============================================================
 
-# Install the user-provided crontab
-echo "Installing crontab..."
-crontab /config/crontab
+ANACRON_SPOOL="/config/anacron"
+ANACRON_CONFIG="/config/anacrontab"
+
+mkdir -p "$ANACRON_SPOOL"
+
+cat > "$ANACRON_CONFIG" <<EOF
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+1       0       powershell-daily      /usr/local/bin/run-powershell-directory daily
+7       0       powershell-weekly     /usr/local/bin/run-powershell-directory weekly
+30      0       powershell-monthly    /usr/local/bin/run-powershell-directory monthly
+EOF
 
 echo
-echo "Installed schedule:"
+echo "Anacron configuration:"
 echo "------------------------------------------"
-crontab -l
+cat "$ANACRON_CONFIG"
 echo "------------------------------------------"
 
 echo
-echo "Scripts:"
-find /scripts -maxdepth 1 -type f -name "*.ps1" -printf "  %f\n" 2>/dev/null || true
+echo "Anacron spool:"
+echo "  $ANACRON_SPOOL"
+
+# ============================================================
+# Start anacron
+# ============================================================
 
 echo
-echo "Starting cron..."
+echo "Starting anacron..."
 echo
 
-# Run cron in the foreground so Docker considers the container alive.
-exec cron -f
+exec anacron -f -S "$ANACRON_SPOOL" -t "$ANACRON_CONFIG"
