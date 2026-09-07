@@ -81,9 +81,6 @@ wait_for_next_minute() {
     local seconds
     local sleep_seconds
     seconds="$(date '+%S')"
-    if [ "$seconds" -eq 0 ]; then
-        return
-    fi
     sleep_seconds=$((60 - 10#$seconds))
     sleep "$sleep_seconds"
 }
