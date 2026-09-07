@@ -1,0 +1,67 @@
+#!/bin/bash
+
+set -u
+
+SCRIPT="${1:-}"
+LOGFILE="${2:-}"
+
+if [ -z "$SCRIPT" ] || [ -z "$LOGFILE" ]; then
+    echo "Usage: $0 <script.ps1> <logfile>"
+    exit 2
+fi
+
+if [ ! -f "$SCRIPT" ]; then
+    echo "$(date '+%Y-%m-%d %H:%M:%S') ERROR: Script not found: $SCRIPT" >&2
+    exit 2
+fi
+
+# Make sure the log directory exists.
+LOGDIR="$(dirname "$LOGFILE")"
+
+if ! mkdir -p "$LOGDIR"; then
+    echo "$(date '+%Y-%m-%d %H:%M:%S') ERROR: Unable to create log directory: $LOGDIR" >&2
+    exit 2
+fi
+
+# Use a lock file unique to this script.
+SCRIPT_NAME="$(basename "$SCRIPT")"
+LOCKFILE="/tmp/${SCRIPT_NAME}.lock"
+
+# Open the lock file on file descriptor 9.
+exec 9>"$LOCKFILE"
+
+# Try to acquire the lock without waiting.
+if ! flock -n 9; then
+    echo "$(date '+%Y-%m-%d %H:%M:%S') SKIPPED: $SCRIPT_NAME is already running." >> "$LOGFILE"
+    exit 0
+fi
+
+START_TIME="$(date '+%Y-%m-%d %H:%M:%S')"
+
+{
+    echo "============================================================"
+    echo "START: $START_TIME"
+    echo "SCRIPT: $SCRIPT"
+    echo "============================================================"
+
+    # Run PowerShell.
+    pwsh \
+        -NoLogo \
+        -NoProfile \
+        -NonInteractive \
+        -File "$SCRIPT"
+
+    EXIT_CODE=$?
+
+    END_TIME="$(date '+%Y-%m-%d %H:%M:%S')"
+
+    echo
+    echo "============================================================"
+    echo "END: $END_TIME"
+    echo "EXIT CODE: $EXIT_CODE"
+    echo "============================================================"
+    echo
+
+} >> "$LOGFILE" 2>&1
+
+exit "$EXIT_CODE"
