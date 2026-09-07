@@ -9,7 +9,7 @@ ENV POWERSHELL_TELEMETRY_OPTOUT=1
 # Install cron and a couple of useful utilities
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
-        cron \
+        anacron \
         tzdata \
         ca-certificates && \
     rm -rf /var/lib/apt/lists/*
