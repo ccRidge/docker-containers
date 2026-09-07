@@ -20,6 +20,7 @@ RUN mkdir -p /config /scripts /logs
 # Copy entrypoint and pwsh wrapper script
 COPY entrypoint.sh /entrypoint.sh
 COPY run-powershell-script /usr/local/bin/run-powershell-script
+COPY run-powershell-directory /usr/local/bin/run-powershell-directory
 RUN chmod +x /entrypoint.sh \
              /usr/local/bin/run-powershell-script
 
