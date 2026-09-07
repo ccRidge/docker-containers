@@ -74,6 +74,15 @@ echo "Anacron spool:"
 echo "  $ANACRON_SPOOL"
 
 # ============================================================
+# Test anacron
+# ============================================================
+
+echo
+echo "Testing anacron configuration..."
+
+anacron -T -t "$ANACRON_CONFIG"
+
+# ============================================================
 # Start anacron
 # ============================================================
 
@@ -81,4 +90,4 @@ echo
 echo "Starting anacron..."
 echo
 
-exec anacron -f -S "$ANACRON_SPOOL" -t "$ANACRON_CONFIG"
+exec anacron -d -s -S "$ANACRON_SPOOL" -t "$ANACRON_CONFIG"
