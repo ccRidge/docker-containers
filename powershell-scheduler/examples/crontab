@@ -1,0 +1,39 @@
+# ============================================================
+# PowerShell Scheduler - Example Cron Configuration
+# ============================================================
+#
+# Format:
+#   minute hour day-of-month month day-of-week command
+#
+# Wrapper:
+#   run-powershell-script <job-name> <script.ps1> <logfile>
+#
+# IMPORTANT:
+# - Paths refer to paths INSIDE the container.
+# - The container maps /scripts and /logs to your Unraid folders.
+# - Job names should be unique.
+# ============================================================
+
+
+# ------------------------------------------------------------
+# Test job - every 5 minutes
+# ------------------------------------------------------------
+*/5 * * * * /usr/local/bin/run-powershell-script test-job /scripts/test.ps1 /logs/test.log
+
+
+# ------------------------------------------------------------
+# Hourly job - at 15 minutes past every hour
+# ------------------------------------------------------------
+15 * * * * /usr/local/bin/run-powershell-script hourly-job /scripts/hourly.ps1 /logs/hourly.log
+
+
+# ------------------------------------------------------------
+# Daily job - every day at 2:00 AM
+# ------------------------------------------------------------
+0 2 * * * /usr/local/bin/run-powershell-script daily-job /scripts/daily.ps1 /logs/daily.log
+
+
+# ------------------------------------------------------------
+# Weekly job - Sunday at 3:00 AM
+# ------------------------------------------------------------
+0 3 * * 0 /usr/local/bin/run-powershell-script weekly-job /scripts/weekly.ps1 /logs/weekly.log
