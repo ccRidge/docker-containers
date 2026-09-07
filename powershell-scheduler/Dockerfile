@@ -1,0 +1,24 @@
+FROM mcr.microsoft.com/dotnet/sdk:8.0
+
+LABEL org.opencontainers.image.title="PowerShell Scheduler"
+LABEL org.opencontainers.image.description="PowerShell 7 scheduled task runner"
+LABEL org.opencontainers.image.source="Custom Unraid container"
+
+ENV POWERSHELL_TELEMETRY_OPTOUT=1
+
+# Install cron and a couple of useful utilities
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        cron \
+        tzdata \
+        ca-certificates && \
+    rm -rf /var/lib/apt/lists/*
+
+# Container directories
+RUN mkdir -p /config /scripts /logs
+
+# Copy entrypoint
+COPY entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
+ENTRYPOINT ["/entrypoint.sh"]
