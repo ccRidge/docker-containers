@@ -47,7 +47,7 @@ LOCKFILE="/tmp/powershell-${LOCK_NAME}.lock"
 exec 9>"$LOCKFILE"
 
 if ! flock -n 9; then
-    echo "$(date '+%Y-%m-%d %H:%M:%S') SKIPPED: Job '$JOB_NAME' is already running." >> "$LOGFILE"
+    echo "$(date '+%Y-%m-%d %H:%M:%S') SKIPPED: Job '$JOB_NAME' is already running script '$SCRIPT'" >> "$LOGFILE"
     exit 0
 fi
 
