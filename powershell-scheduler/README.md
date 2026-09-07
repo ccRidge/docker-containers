@@ -448,55 +448,98 @@ The Unraid Docker template should provide equivalent configuration through the U
 
 ## Testing
 
-Create a simple test script:
+Example test scripts are provided in the repository's `examples/` directory.
 
-```powershell
-$timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+These scripts are intended to be copied into the appropriate scheduling directory on the Unraid server.
 
-Write-Host "PowerShell Scheduler Test"
-Write-Host "Time: $timestamp"
-Write-Host "Host: $env:HOSTNAME"
-Write-Host "PowerShell version: $($PSVersionTable.PSVersion)"
-Write-Host "Test completed successfully."
-```
+### Basic Environment Test
 
-Save it as:
+The basic test script is:
 
 ```text
-/scripts/minute/test.ps1
+examples/test.ps1
 ```
 
-The scheduler will automatically discover the script and execute it during the next minute scheduling cycle.
+Copy it to:
 
-The resulting log will be:
+```text
+/mnt/user/appdata/docker/powershell-scheduler/scripts/minute/test.ps1
+```
+
+The script validates the PowerShell environment and verifies that the mounted log volume is writable.
+
+The example script contains:
+
+```powershell
+# test.ps1 - Validates Container Environment and Volume Mounts
+Write-Output "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] ---> PowerShell Scheduler Test Initialized <---"
+Write-Output "Running as User: $env:USERNAME"
+Write-Output "PowerShell Version: $($PSVersionTable.PSVersion)"
+
+# Test log directory access (useful if you mount a log volume)
+$logPath = "/logs/test_run.log"
+try {
+    New-Item -ItemType Directory -Force -Path "/logs" | Out-Null
+    "[$(Get-Date)] Test script successfully wrote to logs." | Out-File -FilePath $logPath -Append
+    Write-Output "SUCCESS: Volume read/write access verified at $logPath"
+} catch {
+    Write-Warning "WARNING: Could not write to logs directory. Check volume permissions. Error: $_"
+}
+
+Write-Output "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] ---> Test Completed Successfully <---"
+```
+
+The scheduler should automatically discover the script during the next minute scheduling cycle.
+
+The scheduler's execution log will be:
 
 ```text
 /logs/minute/test.log
 ```
 
-You can also view the container's startup and scheduler messages with:
+The test script also writes a separate volume verification entry to:
+
+```text
+/logs/test_run.log
+```
+
+### Job Locking Test
+
+The job-locking test script is:
+
+```text
+examples/job-locking-test.ps1
+```
+
+Copy it to:
+
+```text
+/mnt/user/appdata/docker/powershell-scheduler/scripts/minute/job-locking-test.ps1
+```
+
+The script intentionally runs longer than the one-minute scheduling interval.
+
+The scheduler will attempt to start it again while the first execution is still running. The second attempt should be skipped because the job is already locked.
+
+The resulting log can be checked at:
+
+```text
+/logs/minute/job-locking-test.log
+```
+
+Look for a message similar to:
+
+```text
+SKIPPED: Job 'minute/job-locking-test' is already running
+```
+
+### Viewing Container Logs
+
+The container's startup and scheduler messages can be viewed with:
 
 ```bash
 docker logs PowerShell-Scheduler
 ```
-
-### Testing Job Locking
-
-To test job locking, make a test script run longer than its scheduling interval:
-
-```powershell
-Write-Host "Starting long-running test."
-Start-Sleep -Seconds 90
-Write-Host "Long-running test completed."
-```
-
-Place it in:
-
-```text
-/scripts/minute/test.ps1
-```
-
-The scheduler will attempt to run the script every minute. While the first execution is still running, subsequent attempts will be skipped and recorded in the log.
 
 ## Security
 
