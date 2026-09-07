@@ -100,11 +100,11 @@ while true; do
     echo "$(date '+%Y-%m-%d %H:%M:%S') INFO: Scheduler cycle started."
 
     # Run minute jobs.
-    /usr/local/bin/run-powershell-directory minute
+    /usr/local/bin/run-powershell-directory minute &
 
     # Run hourly jobs at the top of the hour.
     if [ "$CURRENT_MINUTE" = "00" ]; then
-        /usr/local/bin/run-powershell-directory hourly
+        /usr/local/bin/run-powershell-directory hourly &
     fi
 
     # Run daily/weekly/monthly jobs through Anacron.
