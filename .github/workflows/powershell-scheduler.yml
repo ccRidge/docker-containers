@@ -2,7 +2,7 @@ name: Push Powershell-Scheduler Container
 
 on:
   push:
-    branches: [ "main" ]
+    branches: [ "master" ]
     paths:
       - 'docker-containers/powershell-scheduler/**'
 
