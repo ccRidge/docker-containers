@@ -5,6 +5,7 @@ on:
     branches: [ "master" ]
     paths:
       - 'docker-containers/powershell-scheduler/**'
+  workflow_dispatch: # Enables the manual "Run workflow" button in the GitHub UI
 
 jobs:
   build-and-push:
