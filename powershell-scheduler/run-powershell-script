@@ -1,21 +1,32 @@
 #!/bin/bash
-
 set -u
 
-SCRIPT="${1:-}"
-LOGFILE="${2:-}"
+JOB_NAME="${1:-}"
+SCRIPT="${2:-}"
+LOGFILE="${3:-}"
 
-if [ -z "$SCRIPT" ] || [ -z "$LOGFILE" ]; then
-    echo "Usage: $0 <script.ps1> <logfile>"
+# ------------------------------------------------------------
+# Validate arguments
+# ------------------------------------------------------------
+
+if [ -z "$JOB_NAME" ] || [ -z "$SCRIPT" ] || [ -z "$LOGFILE" ]; then
+    echo "Usage: $0 <job-name> <script.ps1> <logfile>" >&2
     exit 2
 fi
+
+# ------------------------------------------------------------
+# Validate script
+# ------------------------------------------------------------
 
 if [ ! -f "$SCRIPT" ]; then
     echo "$(date '+%Y-%m-%d %H:%M:%S') ERROR: Script not found: $SCRIPT" >&2
     exit 2
 fi
 
-# Make sure the log directory exists.
+# ------------------------------------------------------------
+# Prepare log directory
+# ------------------------------------------------------------
+
 LOGDIR="$(dirname "$LOGFILE")"
 
 if ! mkdir -p "$LOGDIR"; then
@@ -23,28 +34,36 @@ if ! mkdir -p "$LOGDIR"; then
     exit 2
 fi
 
-# Use a lock file unique to this script.
-SCRIPT_NAME="$(basename "$SCRIPT")"
-LOCKFILE="/tmp/${SCRIPT_NAME}.lock"
+# ------------------------------------------------------------
+# Create a unique lock based on the job name
+#
+# Hashing the name keeps the lock filename safe regardless
+# of characters used in the job name.
+# ------------------------------------------------------------
 
-# Open the lock file on file descriptor 9.
+LOCK_NAME="$(printf '%s' "$JOB_NAME" | sha256sum | cut -d' ' -f1)"
+LOCKFILE="/tmp/powershell-${LOCK_NAME}.lock"
+
 exec 9>"$LOCKFILE"
 
-# Try to acquire the lock without waiting.
 if ! flock -n 9; then
-    echo "$(date '+%Y-%m-%d %H:%M:%S') SKIPPED: $SCRIPT_NAME is already running." >> "$LOGFILE"
+    echo "$(date '+%Y-%m-%d %H:%M:%S') SKIPPED: Job '$JOB_NAME' is already running." >> "$LOGFILE"
     exit 0
 fi
+
+# ------------------------------------------------------------
+# Run PowerShell script
+# ------------------------------------------------------------
 
 START_TIME="$(date '+%Y-%m-%d %H:%M:%S')"
 
 {
     echo "============================================================"
-    echo "START: $START_TIME"
-    echo "SCRIPT: $SCRIPT"
+    echo "START:    $START_TIME"
+    echo "JOB:      $JOB_NAME"
+    echo "SCRIPT:   $SCRIPT"
     echo "============================================================"
 
-    # Run PowerShell.
     pwsh \
         -NoLogo \
         -NoProfile \
@@ -57,11 +76,16 @@ START_TIME="$(date '+%Y-%m-%d %H:%M:%S')"
 
     echo
     echo "============================================================"
-    echo "END: $END_TIME"
+    echo "END:      $END_TIME"
+    echo "JOB:      $JOB_NAME"
     echo "EXIT CODE: $EXIT_CODE"
     echo "============================================================"
     echo
 
 } >> "$LOGFILE" 2>&1
+
+# ------------------------------------------------------------
+# Return the PowerShell exit code to cron
+# ------------------------------------------------------------
 
 exit "$EXIT_CODE"
