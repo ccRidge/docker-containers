@@ -17,8 +17,10 @@ RUN apt-get update && \
 # Container directories
 RUN mkdir -p /config /scripts /logs
 
-# Copy entrypoint
+# Copy entrypoint and pwsh wrapper script
 COPY entrypoint.sh /entrypoint.sh
-RUN chmod +x /entrypoint.sh
+COPY run-powershell-script /usr/local/bin/run-powershell-script
+RUN chmod +x /entrypoint.sh \
+             /usr/local/bin/run-powershell-script
 
 ENTRYPOINT ["/entrypoint.sh"]
