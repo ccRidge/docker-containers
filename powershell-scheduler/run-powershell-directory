@@ -1,0 +1,91 @@
+#!/bin/bash
+set -u
+
+INTERVAL="${1:-}"
+
+# ------------------------------------------------------------
+# Validate interval
+# ------------------------------------------------------------
+
+case "$INTERVAL" in
+    minute|hourly|daily|weekly|monthly)
+        ;;
+    *)
+        echo "Usage: $0 <minute|hourly|daily|weekly|monthly>" >&2
+        exit 2
+        ;;
+esac
+
+SCRIPT_DIR="/scripts/$INTERVAL"
+LOG_DIR="/logs/$INTERVAL"
+
+# ------------------------------------------------------------
+# Validate script directory
+# ------------------------------------------------------------
+
+if [ ! -d "$SCRIPT_DIR" ]; then
+    echo "$(date '+%Y-%m-%d %H:%M:%S.%4N') ERROR: Script directory not found: $SCRIPT_DIR" >&2
+    exit 2
+fi
+
+# ------------------------------------------------------------
+# Find PowerShell scripts
+#
+# Only files directly inside the interval directory are
+# considered. Subdirectories are ignored.
+# ------------------------------------------------------------
+
+mapfile -t SCRIPTS < <(
+    find "$SCRIPT_DIR" \
+        -maxdepth 1 \
+        -type f \
+        -name "*.ps1" \
+        -printf "%f\n" |
+    sort
+)
+
+# ------------------------------------------------------------
+# Nothing to run
+# ------------------------------------------------------------
+
+if [ "${#SCRIPTS[@]}" -eq 0 ]; then
+    echo "$(date '+%Y-%m-%d %H:%M:%S.%4N') INFO: No PowerShell scripts found in $SCRIPT_DIR"
+    exit 0
+fi
+
+# ------------------------------------------------------------
+# Run each script
+# ------------------------------------------------------------
+
+OVERALL_EXIT_CODE=0
+
+for SCRIPT_NAME in "${SCRIPTS[@]}"; do
+
+    SCRIPT_PATH="$SCRIPT_DIR/$SCRIPT_NAME"
+
+    # Remove .ps1 extension for job/log names
+    BASE_NAME="${SCRIPT_NAME%.ps1}"
+
+    JOB_NAME="$INTERVAL/$BASE_NAME"
+    LOGFILE="$LOG_DIR/$BASE_NAME.log"
+
+    echo "$(date '+%Y-%m-%d %H:%M:%S.%4N') INFO: Running job '$JOB_NAME'"
+
+    /usr/local/bin/run-powershell-script \
+        "$JOB_NAME" \
+        "$SCRIPT_PATH" \
+        "$LOGFILE"
+
+    EXIT_CODE=$?
+
+    if [ "$EXIT_CODE" -ne 0 ]; then
+        echo "$(date '+%Y-%m-%d %H:%M:%S.%4N') ERROR: Job '$JOB_NAME' failed with exit code $EXIT_CODE" >&2
+        OVERALL_EXIT_CODE=1
+    fi
+done
+
+# ------------------------------------------------------------
+# Return overall result
+# ------------------------------------------------------------
+
+exit "$OVERALL_EXIT_CODE"
