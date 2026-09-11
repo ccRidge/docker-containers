@@ -19,7 +19,7 @@ fi
 # ------------------------------------------------------------
 
 if [ ! -f "$SCRIPT" ]; then
-    echo "$(date '+%Y-%m-%d %H:%M:%S') ERROR: Script not found: $SCRIPT" >&2
+    echo "$(date '+%Y-%m-%d %H:%M:%S.%4N') ERROR: Script not found: $SCRIPT" >&2
     exit 2
 fi
 
@@ -30,7 +30,7 @@ fi
 LOGDIR="$(dirname "$LOGFILE")"
 
 if ! mkdir -p "$LOGDIR"; then
-    echo "$(date '+%Y-%m-%d %H:%M:%S') ERROR: Unable to create log directory: $LOGDIR" >&2
+    echo "$(date '+%Y-%m-%d %H:%M:%S.%4N') ERROR: Unable to create log directory: $LOGDIR" >&2
     exit 2
 fi
 
@@ -47,7 +47,7 @@ LOCKFILE="/tmp/powershell-${LOCK_NAME}.lock"
 exec 9>"$LOCKFILE"
 
 if ! flock -n 9; then
-    echo "$(date '+%Y-%m-%d %H:%M:%S') SKIPPED: Job '$JOB_NAME' is already running script '$SCRIPT'" >> "$LOGFILE"
+    echo "$(date '+%Y-%m-%d %H:%M:%S.%4N') SKIPPED: Job '$JOB_NAME' is already running script '$SCRIPT'" >> "$LOGFILE"
     exit 0
 fi
 
@@ -55,7 +55,7 @@ fi
 # Run PowerShell script
 # ------------------------------------------------------------
 
-START_TIME="$(date '+%Y-%m-%d %H:%M:%S')"
+START_TIME="$(date '+%Y-%m-%d %H:%M:%S.%4N')"
 
 {
     echo "============================================================"
@@ -72,7 +72,7 @@ START_TIME="$(date '+%Y-%m-%d %H:%M:%S')"
 
     EXIT_CODE=$?
 
-    END_TIME="$(date '+%Y-%m-%d %H:%M:%S')"
+    END_TIME="$(date '+%Y-%m-%d %H:%M:%S.%4N')"
 
     echo
     echo "============================================================"
