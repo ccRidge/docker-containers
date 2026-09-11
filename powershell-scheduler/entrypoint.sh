@@ -19,7 +19,7 @@ echo
 echo "Timezone:"
 echo "  TZ=${TZ:-<not set>}"
 echo "  System timezone: $(cat /etc/timezone 2>/dev/null || echo '<unknown>')"
-echo "  Current time:    $(date '+%Y-%m-%d %H:%M:%S %Z %z')"
+echo "  Current time:    $(date '+%Y-%m-%d %H:%M:%S.%4N %Z %z')"
 
 # ============================================================
 # Validate directories
@@ -97,7 +97,7 @@ echo
 
 while true; do
     CURRENT_MINUTE="$(date '+%M')"
-    echo "$(date '+%Y-%m-%d %H:%M:%S') INFO: Scheduler cycle started."
+    echo "$(date '+%Y-%m-%d %H:%M:%S.%4N') INFO: Scheduler cycle started."
 
     # Run minute jobs.
     /usr/local/bin/run-powershell-directory minute &
@@ -110,7 +110,7 @@ while true; do
     # Run daily/weekly/monthly jobs through Anacron.
     anacron -d -s -S "$ANACRON_SPOOL" -t "$ANACRON_CONFIG"
 
-    echo "$(date '+%Y-%m-%d %H:%M:%S') INFO: Scheduler cycle completed."
+    echo "$(date '+%Y-%m-%d %H:%M:%S.%4N') INFO: Scheduler cycle completed."
 
     # Wait for the next minute boundary.
     wait_for_next_minute
