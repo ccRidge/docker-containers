@@ -12,9 +12,9 @@ RUN apt-get update && \
         ca-certificates \
         locales \
         libicu-dev \
-        && echo "en_US.UTF-8 UTF-8" > /etc/locale.gen \
-        && locale-gen en_US.UTF-8
-    rm -rf /var/lib/apt/lists/*
+    && echo "en_US.UTF-8 UTF-8" > /etc/locale.gen \
+    && locale-gen en_US.UTF-8 \
+    && rm -rf /var/lib/apt/lists/*
 
 ENV POWERSHELL_TELEMETRY_OPTOUT=1
 ENV DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=false
