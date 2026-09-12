@@ -5,6 +5,7 @@ LABEL org.opencontainers.image.description="PowerShell 7 scheduled task runner"
 LABEL org.opencontainers.image.source="Custom Unraid container"
 
 ENV POWERSHELL_TELEMETRY_OPTOUT=1
+ENV DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=false
 
 # Install cron and a couple of useful utilities
 RUN apt-get update && \
