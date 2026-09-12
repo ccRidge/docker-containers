@@ -12,7 +12,8 @@ RUN apt-get update && \
     apt-get install -y --no-install-recommends \
         anacron \
         tzdata \
-        ca-certificates && \
+        ca-certificates \
+        libicu-dev && \
     rm -rf /var/lib/apt/lists/*
 
 # Container directories
