@@ -59,8 +59,9 @@ GitHub Repository
 │             PowerShell               │
 │                                      │
 │  /config  ──► scheduler state        │
-│  /scripts ──► scheduled scripts      │
 │  /logs    ──► execution logs         │
+│  /scripts ──► scheduled scripts      │
+│  /secrets ──► container secrets      │
 └──────────────────────────────────────┘
 ```
 
@@ -79,13 +80,14 @@ with the following structure:
 ```text
 powershell-scheduler/
 ├── config/
+├── logs/
 ├── scripts/
 │   ├── minute/
 │   ├── hourly/
 │   ├── daily/
 │   ├── weekly/
 │   └── monthly/
-└── logs/
+└── secrets/
     ├── minute/
     ├── hourly/
     ├── daily/
@@ -95,9 +97,11 @@ powershell-scheduler/
 
 The `config` directory contains scheduler state.
 
+The `logs` directory contains persistent execution logs organized to mirror the script directory structure.
+
 The `scripts` directory contains PowerShell scripts organized by scheduling interval.
 
-The `logs` directory contains persistent execution logs organized to mirror the script directory structure.
+The `secrets` directory contains sensitive data that shouldn't be casually exposed.
 
 The Docker source code is maintained separately from the runtime data.
 
@@ -351,8 +355,9 @@ The container uses three persistent volume mappings:
 | Unraid Path | Container Path | Purpose |
 |---|---|---|
 | `/mnt/user/appdata/docker/powershell-scheduler/config` | `/config` | Scheduler state |
-| `/mnt/user/appdata/docker/powershell-scheduler/scripts` | `/scripts` | PowerShell scripts |
 | `/mnt/user/appdata/docker/powershell-scheduler/logs` | `/logs` | Execution logs |
+| `/mnt/user/appdata/docker/powershell-scheduler/scripts` | `/scripts` | PowerShell scripts |
+| `/mnt/user/appdata/docker/powershell-scheduler/secrets` | `/secrets` | Sensitive data |
 
 No persistent data should be stored inside the container itself.
 
@@ -433,8 +438,9 @@ docker run -d \
   --restart unless-stopped \
   -e TZ=America/Los_Angeles \
   -v /mnt/user/appdata/docker/powershell-scheduler/config:/config:rw \
-  -v /mnt/user/appdata/docker/powershell-scheduler/scripts:/scripts:rw \
   -v /mnt/user/appdata/docker/powershell-scheduler/logs:/logs:rw \
+  -v /mnt/user/appdata/docker/powershell-scheduler/scripts:/scripts:rw \
+  -v /mnt/user/appdata/docker/powershell-scheduler/secrets:/secrets:rw \  
   ccridge/powershell-scheduler:0.2.0
 ```
 
