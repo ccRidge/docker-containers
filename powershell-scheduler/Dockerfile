@@ -22,7 +22,7 @@ ENV LANG=en_US.UTF-8
 ENV LC_ALL=en_US.UTF-8
 
 # Container directories
-RUN mkdir -p /config /scripts /logs
+RUN mkdir -p /config /scripts /logs /secret
 
 # Copy entrypoint and pwsh wrapper script
 COPY entrypoint.sh /entrypoint.sh
